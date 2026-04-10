@@ -1,0 +1,7 @@
+{
+  "name": "Dakar Immo",
+  "description": "Plateforme de mise en relation immobilière à Dakar pour étudiants, travailleurs et expatriés.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

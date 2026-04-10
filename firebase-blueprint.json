@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information including role and favorites.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["user", "courtier", "aide_courtier", "admin"], "description": "User role" },
+        "favorites": { "type": "array", "items": { "type": "string" }, "description": "List of favorite listing IDs" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "affiliateClicks": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "role"]
+    },
+    "Listing": {
+      "title": "Listing",
+      "description": "Real estate listing in Dakar.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "price": { "type": "number", "description": "Price in FCFA" },
+        "neighborhood": { "type": "string", "enum": ["Plateau", "Almadies", "Ouest Foire", "VDN", "Parcelles", "Mermoz", "Fann", "Sacré-Cœur", "Ngor", "Yoff"] },
+        "type": { "type": "string", "enum": ["Chambre étudiant", "Appartement", "Villa", "Logement Entier"] },
+        "whatsapp": { "type": "string", "description": "WhatsApp number with country code" },
+        "visitFee": { "type": "integer", "description": "Visit fee in FCFA" },
+        "tags": { "type": "array", "items": { "type": "string" }, "description": "Amenity tags" },
+        "proximity": { "type": "array", "items": { "type": "string" }, "description": "Proximity zones" },
+        "images": { "type": "array", "items": { "type": "string" }, "description": "Array of image URLs (Max 6)" },
+        "videos": { "type": "array", "items": { "type": "string" }, "description": "Array of video URLs (Max 2)" },
+        "courtierId": { "type": "string", "description": "UID of the courtier who posted the listing" },
+        "courtierName": { "type": "string" },
+        "courtierPhoto": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "isBoosted": { "type": "boolean" },
+        "boostUntil": { "type": "string", "format": "date-time" },
+        "isVerified": { "type": "boolean", "description": "Verified by admin" },
+        "commissionAideCourtier": { "type": "number" },
+        "status": { "type": "string", "enum": ["Disponible", "Loué"] },
+        "bedrooms": { "type": "number" },
+        "bathrooms": { "type": "number" },
+        "views": { "type": "number" },
+        "favoritesCount": { "type": "number" }
+      },
+      "required": ["title", "description", "price", "neighborhood", "type", "whatsapp", "courtierId", "images", "videos", "createdAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "User review for a broker.",
+      "type": "object",
+      "properties": {
+        "courtierId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "rating": { "type": "number" },
+        "comment": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["courtierId", "userId", "userName", "rating", "comment", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["info", "success", "warning"] },
+        "read": { "type": "boolean" },
+        "listingId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "LeadTransfer": {
+      "title": "LeadTransfer",
+      "description": "Information about a lead transferred from an affiliate to a broker.",
+      "type": "object",
+      "properties": {
+        "listingId": { "type": "string" },
+        "listingTitle": { "type": "string" },
+        "affiliateId": { "type": "string" },
+        "affiliateName": { "type": "string" },
+        "courtierId": { "type": "string" },
+        "courtierName": { "type": "string" },
+        "clientName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["listingId", "listingTitle", "affiliateId", "affiliateName", "courtierId", "courtierName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/listings/{listingId}": {
+      "schema": "Listing",
+      "description": "Real estate listings"
+    },
+    "/listings/{listingId}/colocation_messages/{messageId}": {
+      "schema": "ColocationMessage",
+      "description": "Colocation interest messages"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Broker reviews"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/lead_transfers/{transferId}": {
+      "schema": "LeadTransfer",
+      "description": "Lead transfers from affiliates to brokers"
+    }
+  }
+}
