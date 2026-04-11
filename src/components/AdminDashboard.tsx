@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDoc, serverTimestamp, arrayUnion, addDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDoc, serverTimestamp, arrayUnion, addDoc, getDocs, writeBatch } from 'firebase/firestore';
 import { Listing, UserProfile, ServiceRequest, CommissionClaim, Transaction, LeadTransfer } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Rocket, Trash2, Calendar, User, Clock, CheckCircle, XCircle, ShieldCheck, ShieldAlert, Zap, Package, Mail, ExternalLink, DollarSign, Plus, Phone, Star } from 'lucide-react';
+import { Shield, Rocket, Trash2, Calendar, User, Clock, CheckCircle, XCircle, ShieldCheck, ShieldAlert, Zap, Package, Mail, ExternalLink, DollarSign, Plus, Phone, Star, Settings } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface AdminDashboardProps {
@@ -18,7 +18,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
   const [commissionClaims, setCommissionClaims] = useState<CommissionClaim[]>([]);
   const [withdrawals, setWithdrawals] = useState<any[]>([]);
   const [leadTransfers, setLeadTransfers] = useState<LeadTransfer[]>([]);
-  const [activeTab, setActiveTab] = useState<'listings' | 'requests' | 'claims' | 'sales' | 'partners' | 'users' | 'withdrawals' | 'supervision'>('listings');
+  const [activeTab, setActiveTab] = useState<'listings' | 'requests' | 'claims' | 'sales' | 'partners' | 'users' | 'withdrawals' | 'supervision' | 'maintenance'>('listings');
   const [loading, setLoading] = useState(true);
   const [boostDuration, setBoostDuration] = useState(7); // Default 7 days
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -498,92 +498,162 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
     }
   };
 
+  const handleProductionReset = async () => {
+    if (!window.confirm("⚠️ ATTENTION : Cette action va supprimer TOUTES les annonces, transactions et réinitialiser les soldes. Cette opération est irréversible. Voulez-vous continuer ?")) return;
+    if (!window.confirm("⚠️ DERNIÈRE CONFIRMATION : Êtes-vous ABSOLUMENT sûr ?")) return;
+
+    setActionLoading('reset');
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Delete Listings
+      const listingsSnap = await getDocs(collection(db, 'listings'));
+      listingsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 2. Delete Lead Transfers
+      const transfersSnap = await getDocs(collection(db, 'lead_transfers'));
+      transfersSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 3. Delete Commission Claims
+      const claimsSnap = await getDocs(collection(db, 'commission_claims'));
+      claimsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 4. Delete Notifications
+      const notifsSnap = await getDocs(collection(db, 'notifications'));
+      notifsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 5. Delete Affiliate Clicks
+      const clicksSnap = await getDocs(collection(db, 'affiliate_clicks'));
+      clicksSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 6. Delete Service Requests
+      const serviceReqsSnap = await getDocs(collection(db, 'service_requests'));
+      serviceReqsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 7. Delete Housing Requests
+      const housingReqsSnap = await getDocs(collection(db, 'housing_requests'));
+      housingReqsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 8. Delete Reviews
+      const reviewsSnap = await getDocs(collection(db, 'reviews'));
+      reviewsSnap.docs.forEach(d => batch.delete(d.ref));
+
+      // 9. Reset User Balances & Transactions
+      const usersSnap = await getDocs(collection(db, 'users'));
+      usersSnap.docs.forEach(d => {
+        const userData = d.data();
+        // Skip admin peter25ngouala@gmail.com
+        if (userData.email !== "peter25ngouala@gmail.com") {
+          batch.update(d.ref, {
+            balance: 0,
+            transactions: []
+          });
+        }
+      });
+
+      await batch.commit();
+      alert("Nettoyage de production terminé avec succès !");
+      setActiveTab('listings');
+    } catch (error) {
+      console.error("Error during production reset:", error);
+      alert("Une erreur est survenue lors du nettoyage.");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-white rounded-3xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl"
+        className="bg-white rounded-3xl w-full max-w-6xl h-[95vh] sm:h-[90vh] overflow-hidden flex flex-col shadow-2xl"
       >
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+        <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-xl text-white">
-              <Shield className="w-6 h-6" />
+            <div className="p-2 bg-blue-600 rounded-xl text-white flex-shrink-0">
+              <Shield className="w-5 h-5 sm:w-6 h-6" />
             </div>
-            <div>
-              <h2 className="text-2xl font-black text-gray-900">Administration</h2>
-              <p className="text-gray-500 text-sm font-medium">Gestion des annonces, boosts et vérifications</p>
+            <div className="min-w-0">
+              <h2 className="text-lg sm:text-2xl font-black text-gray-900 truncate">Administration</h2>
+              <p className="text-gray-500 text-[10px] sm:text-sm font-medium truncate">Gestion des annonces, boosts et vérifications</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
           >
-            <XCircle className="w-8 h-8 text-gray-400" />
+            <XCircle className="w-6 h-6 sm:w-8 h-8 text-gray-400" />
           </button>
         </div>
 
-        <div className="p-6 bg-blue-50 border-b border-blue-100 flex flex-wrap items-center gap-6">
-          <div className="flex bg-white p-1 rounded-xl border border-blue-200">
+        <div className="p-4 sm:p-6 bg-blue-50 border-b border-blue-100 flex flex-col gap-4 overflow-hidden">
+          <div className="flex bg-white p-1 rounded-xl border border-blue-200 overflow-x-auto no-scrollbar whitespace-nowrap">
             <button
               onClick={() => setActiveTab('listings')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'listings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'listings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Annonces
             </button>
             <button
               onClick={() => setActiveTab('requests')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Services Pro ({serviceRequests.filter(r => r.status === 'En attente').length})
             </button>
             <button
               onClick={() => setActiveTab('claims')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'claims' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'claims' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Litiges ({commissionClaims.filter(c => c.status === 'En attente' && c.type !== 'declaration').length})
             </button>
             <button
               onClick={() => setActiveTab('sales')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'sales' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'sales' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Ventes ({commissionClaims.filter(c => c.status === 'En attente' && c.type === 'declaration').length})
             </button>
             <button
               onClick={() => setActiveTab('partners')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Partenaires ({users.filter(u => u.role === 'aide_courtier').length})
             </button>
             <button
               onClick={() => setActiveTab('users')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Utilisateurs
             </button>
             <button
               onClick={() => setActiveTab('withdrawals')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Retraits ({withdrawals.filter(w => w.status === 'pending').length})
             </button>
             <button
               onClick={() => setActiveTab('supervision')}
-              className={`px-4 py-2 rounded-lg text-sm font-black transition-all ${activeTab === 'supervision' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'supervision' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
             >
               Supervision Flux
+            </button>
+            <button
+              onClick={() => setActiveTab('maintenance')}
+              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'maintenance' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
+            >
+              Maintenance
             </button>
           </div>
 
           {activeTab === 'listings' && (
-            <>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center gap-3">
                 <Calendar className="w-5 h-5 text-blue-600" />
-                <span className="text-sm font-bold text-gray-700">Durée du Boost :</span>
+                <span className="text-xs sm:text-sm font-bold text-gray-700">Durée du Boost :</span>
                 <select 
                   value={boostDuration}
                   onChange={(e) => setBoostDuration(parseInt(e.target.value))}
-                  className="bg-white border border-blue-200 rounded-lg px-3 py-1.5 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                  className="bg-white border border-blue-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value={1}>1 jour</option>
                   <option value={3}>3 jours</option>
@@ -592,7 +662,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                   <option value={30}>30 jours</option>
                 </select>
               </div>
-              <div className="flex items-center gap-4 text-sm font-medium text-gray-600">
+              <div className="flex items-center gap-4 text-[10px] sm:text-sm font-medium text-gray-600">
                 <div className="flex items-center gap-1.5">
                   <div className="w-3 h-3 bg-blue-600 rounded-full" />
                   <span>{listings.filter(l => l.isBoosted).length} Boostées</span>
@@ -602,11 +672,11 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                   <span>{listings.filter(l => l.isVerified).length} Vérifiées</span>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -1333,6 +1403,47 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                   )}
                 </tbody>
               </table>
+            </div>
+          ) : activeTab === 'maintenance' ? (
+            <div className="p-12 flex flex-col items-center justify-center text-center">
+              <div className="w-24 h-24 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-6">
+                <ShieldAlert className="w-12 h-12" />
+              </div>
+              <h3 className="text-3xl font-black text-gray-900 mb-4">Nettoyage de Production</h3>
+              <p className="text-gray-500 max-w-md mb-8 font-medium">
+                Cette action supprimera toutes les données de test (annonces, transactions, notifications) et réinitialisera les soldes des utilisateurs à 0 FCFA.
+              </p>
+              
+              <div className="bg-amber-50 border border-amber-200 p-6 rounded-2xl mb-8 text-left max-w-lg">
+                <h4 className="text-amber-800 font-black mb-2 flex items-center gap-2">
+                  <Clock className="w-5 h-5" /> Actions qui seront effectuées :
+                </h4>
+                <ul className="text-amber-700 text-sm space-y-2 font-medium">
+                  <li>• Suppression de toutes les <strong>Annonces</strong></li>
+                  <li>• Suppression de toutes les <strong>Mises en Relation</strong></li>
+                  <li>• Suppression de tous les <strong>Litiges et Ventes</strong></li>
+                  <li>• Suppression de toutes les <strong>Notifications</strong></li>
+                  <li>• Réinitialisation des <strong>Soldes Portefeuille</strong> à 0 FCFA</li>
+                  <li>• Vidage de l'historique des <strong>Transactions</strong></li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleProductionReset}
+                disabled={actionLoading === 'reset'}
+                className="bg-red-600 hover:bg-red-700 text-white px-10 py-5 rounded-2xl font-black shadow-xl shadow-red-100 transition-all flex items-center gap-3 disabled:opacity-50"
+              >
+                {actionLoading === 'reset' ? (
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Trash2 className="w-6 h-6" />
+                )}
+                LANCER LE NETTOYAGE FINAL
+              </button>
+              
+              <p className="mt-8 text-xs text-gray-400 font-bold uppercase tracking-widest">
+                Action irréversible • Réservé à l'administrateur
+              </p>
             </div>
           ) : null}
         </div>
