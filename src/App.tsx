@@ -37,12 +37,16 @@ export default function App() {
 }
 
 function AppContent() {
-  const [user] = useAuthState(auth);
+  const [user, authLoading] = useAuthState(auth);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const adminEmails = ["peter2005ngouala@gmail.com", "peterngouala@gmail.com", "peter25ngouala@gmail.com"];
-  const isUserAdmin = userProfile?.role === 'admin' || (user?.email && adminEmails.includes(user.email) && user.emailVerified);
+  
+  // Robust admin check: Prioritize Firestore role, fallback to verified email for super admins
+  const isUserAdmin = userProfile?.role === 'admin' || 
+    (user?.email && adminEmails.includes(user.email) && user.emailVerified);
 
   // Fetch notifications
   useEffect(() => {
@@ -71,6 +75,13 @@ function AppContent() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+
+  // Protection des routes admin
+  useEffect(() => {
+    if (isAdminOpen && !isUserAdmin) {
+      setIsAdminOpen(false);
+    }
+  }, [isAdminOpen, isUserAdmin]);
 
   // Handle navigation from Navbar or other components
   useEffect(() => {
@@ -175,6 +186,7 @@ function AppContent() {
   // Fetch user profile
   useEffect(() => {
     if (user) {
+      setIsProfileLoading(true);
       const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
         if (doc.exists()) {
           setUserProfile(doc.data() as UserProfile);
@@ -183,14 +195,19 @@ function AppContent() {
           setCurrentView('inscription');
           setUserProfile(null);
         }
+        setIsProfileLoading(false);
       }, (error) => {
         handleFirestoreError(auth, error, OperationType.GET, `users/${user.uid}`);
+        setIsProfileLoading(false);
       });
       return () => unsubscribe();
     } else {
       setUserProfile(null);
+      if (!authLoading) {
+        setIsProfileLoading(false);
+      }
     }
-  }, [user]);
+  }, [user, authLoading]);
 
   // Fetch listings with filters
   useEffect(() => {
@@ -302,6 +319,18 @@ function AppContent() {
       handleFirestoreError(auth, error, OperationType.DELETE, `listings/${listingToDelete}`);
     }
   };
+
+  // Global loading state to prevent hydration errors and ensure auth readiness
+  if (authLoading || (user && isProfileLoading)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-500 font-bold animate-pulse">Chargement de Dakar Prestige...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
