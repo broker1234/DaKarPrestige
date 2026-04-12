@@ -20,10 +20,15 @@ export default function WalletCard({ userProfile }: WalletCardProps) {
   const [paymentMethod, setPaymentMethod] = useState<'Wave' | 'Orange Money'>('Wave');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [isPrivate, setIsPrivate] = useState(() => {
-    return sessionStorage.getItem('walletPrivacy') === 'true';
-  });
+  const [isPrivate, setIsPrivate] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'Tous' | 'Validés' | 'En attente' | 'Retraits'>('Tous');
+
+  useEffect(() => {
+    const savedPrivacy = sessionStorage.getItem('walletPrivacy');
+    if (savedPrivacy !== null) {
+      setIsPrivate(savedPrivacy === 'true');
+    }
+  }, []);
 
   useEffect(() => {
     sessionStorage.setItem('walletPrivacy', isPrivate.toString());

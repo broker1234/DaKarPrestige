@@ -397,7 +397,7 @@ function AppContent() {
             {/* Categories Horizontal Scroll */}
             <div className="max-w-7xl mx-auto px-4 py-8 relative z-20">
               <div className="flex items-center justify-center">
-                <div className="flex overflow-x-auto pb-2 gap-3 no-scrollbar scroll-smooth bg-white/80 backdrop-blur-md p-2 rounded-[2rem] shadow-xl border border-gray-100">
+                <div className="flex overflow-x-auto pb-2 gap-3 scroll-smooth bg-white/80 backdrop-blur-md p-2 rounded-[2rem] shadow-xl border border-gray-100 custom-scrollbar">
                   {['Tous', 'Studios', 'Appartements', 'Villas', 'Meublés', 'Chambre étudiant'].map((cat) => (
                     <button
                       key={cat}

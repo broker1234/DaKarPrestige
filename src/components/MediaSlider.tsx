@@ -28,7 +28,7 @@ export default function MediaSlider({ images, videos }: MediaSliderProps) {
     <div className="relative group w-full h-full bg-gray-100">
       <div 
         ref={scrollRef}
-        className="flex h-full overflow-x-auto snap-x snap-mandatory no-scrollbar"
+        className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-none"
       >
         {allMedia.map((media, index) => (
           <div 

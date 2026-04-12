@@ -588,7 +588,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
         </div>
 
         <div className="p-4 sm:p-6 bg-blue-50 border-b border-blue-100 flex flex-col gap-4 overflow-hidden">
-          <div className="flex bg-white p-1 rounded-xl border border-blue-200 overflow-x-auto no-scrollbar whitespace-nowrap">
+          <div className="flex bg-white p-1 rounded-xl border border-blue-200 overflow-x-auto whitespace-nowrap custom-scrollbar">
             <button
               onClick={() => setActiveTab('listings')}
               className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'listings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}

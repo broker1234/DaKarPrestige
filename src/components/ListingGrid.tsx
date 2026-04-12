@@ -91,7 +91,7 @@ export default function ListingGrid({
   }
 
   const gridClasses = layout === 'scroll' 
-    ? "flex overflow-x-auto pb-6 gap-6 snap-x no-scrollbar" 
+    ? "flex overflow-x-auto pb-6 gap-6 snap-x custom-scrollbar" 
     : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8";
 
   return (
