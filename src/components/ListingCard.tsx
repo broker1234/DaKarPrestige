@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MapPin, Home, MessageCircle, Heart, Eye, Video, Rocket, ShieldCheck, Clock, Zap, Star, CheckCircle2, Share2, Award, Search, Sparkles } from 'lucide-react';
 import { Listing, UserProfile } from '../types';
