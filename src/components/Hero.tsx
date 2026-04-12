@@ -21,13 +21,18 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
+    // Reset slide if it becomes out of bounds
+    if (currentSlide >= boostedListings.length && boostedListings.length > 0) {
+      setCurrentSlide(0);
+    }
+
     if (boostedListings.length > 1) {
       const timer = setInterval(() => {
         setCurrentSlide((prev) => (prev + 1) % boostedListings.length);
       }, 6000);
       return () => clearInterval(timer);
     }
-  }, [boostedListings.length]);
+  }, [boostedListings.length, currentSlide]);
 
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % boostedListings.length);
@@ -36,6 +41,8 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
   const prevSlide = () => {
     setCurrentSlide((prev) => (prev - 1 + boostedListings.length) % boostedListings.length);
   };
+
+  const currentBoosted = boostedListings[currentSlide] || boostedListings[0];
 
   const handleSearch = () => {
     onFilterChange({
@@ -60,9 +67,9 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-slate-950" />
         <AnimatePresence mode="wait">
-          {boostedListings.length > 0 ? (
+          {boostedListings.length > 0 && currentBoosted ? (
             <motion.div
-              key={boostedListings[currentSlide].id}
+              key={currentBoosted.id}
               initial={{ opacity: 0, scale: 1.1 }}
               animate={{ opacity: 0.5, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -70,8 +77,8 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
               className="absolute inset-0"
             >
               <img 
-                src={boostedListings[currentSlide].images[0]} 
-                alt={boostedListings[currentSlide].title} 
+                src={currentBoosted.images[0]} 
+                alt={currentBoosted.title} 
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
@@ -98,9 +105,9 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
       <div className="relative z-10 max-w-7xl mx-auto px-4 text-center">
         <div className="mb-12">
           <AnimatePresence mode="wait">
-            {boostedListings.length > 0 ? (
+            {boostedListings.length > 0 && currentBoosted ? (
               <motion.div
-                key={`content-${boostedListings[currentSlide].id}`}
+                key={`content-${currentBoosted.id}`}
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -30 }}
@@ -112,24 +119,24 @@ export default function Hero({ onFilterChange, onAuthClick, boostedListings, onV
                 </div>
                 
                 <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-white mb-6 leading-[0.9] tracking-tight">
-                  {boostedListings[currentSlide].title.split(' ').slice(0, 2).join(' ')}<br />
+                  {currentBoosted.title.split(' ').slice(0, 2).join(' ')}<br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-brand-600">
-                    {boostedListings[currentSlide].title.split(' ').slice(2).join(' ') || boostedListings[currentSlide].neighborhood}
+                    {currentBoosted.title.split(' ').slice(2).join(' ') || currentBoosted.neighborhood}
                   </span>
                 </h1>
                 
                 <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 mb-12">
                   <div className="flex items-center gap-2 text-slate-300 font-bold">
                     <MapPin className="w-5 h-5 text-brand-500" />
-                    {boostedListings[currentSlide].neighborhood}
+                    {currentBoosted.neighborhood}
                   </div>
                   <div className="text-3xl font-black text-white">
-                    {formatPrice(boostedListings[currentSlide].price)}
+                    {formatPrice(currentBoosted.price)}
                   </div>
                 </div>
 
                 <button 
-                  onClick={() => onViewListing(boostedListings[currentSlide])}
+                  onClick={() => onViewListing(currentBoosted)}
                   className="bg-white text-slate-950 px-10 py-5 rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-brand-500 hover:text-white transition-all shadow-2xl shadow-white/10"
                 >
                   Voir la sélection

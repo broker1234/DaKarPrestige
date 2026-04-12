@@ -52,16 +52,25 @@ export default function PromoBanner({ boostedListings, onViewListing }: PromoBan
     : BANNERS;
 
   useEffect(() => {
+    // Reset index if it becomes out of bounds due to displayBanners changing
+    if (currentIndex >= displayBanners.length) {
+      setCurrentIndex(0);
+    }
+
     if (displayBanners.length > 1) {
       const timer = setInterval(() => {
         setCurrentIndex((prev) => (prev + 1) % displayBanners.length);
       }, 5000);
       return () => clearInterval(timer);
     }
-  }, [displayBanners.length]);
+  }, [displayBanners.length, currentIndex]);
 
   const next = () => setCurrentIndex((prev) => (prev + 1) % displayBanners.length);
   const prev = () => setCurrentIndex((prev) => (prev - 1 + displayBanners.length) % displayBanners.length);
+
+  const currentBanner = displayBanners[currentIndex] || displayBanners[0];
+
+  if (!currentBanner) return null;
 
   return (
     <div className="relative w-full h-[250px] md:h-[450px] overflow-hidden rounded-[2rem] mb-8 group">
@@ -76,8 +85,8 @@ export default function PromoBanner({ boostedListings, onViewListing }: PromoBan
         >
           <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent z-10" />
           <img
-            src={displayBanners[currentIndex].image}
-            alt={displayBanners[currentIndex].title}
+            src={currentBanner.image}
+            alt={currentBanner.title}
             className="w-full h-full object-cover"
             referrerPolicy="no-referrer"
           />
@@ -100,7 +109,7 @@ export default function PromoBanner({ boostedListings, onViewListing }: PromoBan
               transition={{ delay: 0.3 }}
               className="text-2xl md:text-5xl font-black text-white mb-2 md:mb-4 max-w-2xl leading-tight"
             >
-              {displayBanners[currentIndex].title}
+              {currentBanner.title}
             </motion.h2>
             <motion.p
               initial={{ opacity: 0, y: 20 }}
@@ -108,7 +117,7 @@ export default function PromoBanner({ boostedListings, onViewListing }: PromoBan
               transition={{ delay: 0.4 }}
               className="text-white/80 text-sm md:text-xl font-medium mb-4 md:mb-8 max-w-xl"
             >
-              {displayBanners[currentIndex].subtitle}
+              {currentBanner.subtitle}
             </motion.p>
             <motion.button
               initial={{ opacity: 0, y: 20 }}
@@ -117,14 +126,13 @@ export default function PromoBanner({ boostedListings, onViewListing }: PromoBan
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={() => {
-                const banner = displayBanners[currentIndex];
-                if ('isListing' in banner && banner.isListing) {
-                  onViewListing(banner.listing);
+                if ('isListing' in currentBanner && currentBanner.isListing) {
+                  onViewListing(currentBanner.listing);
                 }
               }}
               className="w-fit px-6 md:px-10 py-3 md:py-4 rounded-2xl bg-white text-slate-900 font-black text-sm md:text-base shadow-xl hover:bg-brand-500 hover:text-white transition-all"
             >
-              {displayBanners[currentIndex].cta}
+              {currentBanner.cta}
             </motion.button>
           </div>
         </motion.div>
