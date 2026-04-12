@@ -30,5 +30,5 @@ export function timeAgo(date: Date | undefined): string {
   if (diffInHours < 24) return `Il y a ${diffInHours}h`;
   const diffInDays = Math.floor(diffInHours / 24);
   if (diffInDays < 7) return `Il y a ${diffInDays}j`;
-  return date.toLocaleDateString();
+  return date.toLocaleDateString('fr-FR');
 }

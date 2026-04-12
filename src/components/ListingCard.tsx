@@ -20,9 +20,14 @@ interface ListingCardProps {
 export default function ListingCard({ listing, isFavorite, onToggleFavorite, onClick, onTransfer, userProfile }: ListingCardProps) {
   const { formatPrice } = useCurrency();
   const [isHovered, setIsHovered] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const isNew = listing.createdAt && (new Date().getTime() - (listing.createdAt.toDate ? listing.createdAt.toDate().getTime() : new Date(listing.createdAt).getTime())) < 7 * 24 * 60 * 60 * 1000;
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const isNew = isMounted && listing.createdAt && (new Date().getTime() - (listing.createdAt.toDate ? listing.createdAt.toDate().getTime() : new Date(listing.createdAt).getTime())) < 7 * 24 * 60 * 60 * 1000;
 
   return (
     <motion.div

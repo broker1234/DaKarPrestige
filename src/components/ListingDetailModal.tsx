@@ -502,7 +502,7 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                             <span className="font-black text-xs text-slate-900">{msg.userName}</span>
                           </div>
                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleDateString() : 'À l\'instant'}
+                            {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleDateString('fr-FR') : 'À l\'instant'}
                           </span>
                         </div>
                         <p className="text-sm text-slate-600 font-medium leading-relaxed">{msg.message}</p>
@@ -589,7 +589,7 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                             </div>
                           </div>
                           <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
-                            {review.createdAt?.toDate ? review.createdAt.toDate().toLocaleDateString() : 'Récemment'}
+                            {review.createdAt?.toDate ? review.createdAt.toDate().toLocaleDateString('fr-FR') : 'Récemment'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-600 font-medium italic leading-relaxed">"{review.comment}"</p>

@@ -202,7 +202,7 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
                                       <p className="text-xs font-bold text-slate-900 mb-0.5">{n.title}</p>
                                       <p className="text-[11px] text-slate-600 leading-relaxed mb-1">{n.message}</p>
                                       <p className="text-[9px] text-slate-400 font-medium mt-2">
-                                        {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleDateString() : 'À l\'instant'}
+                                        {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleDateString('fr-FR') : 'À l\'instant'}
                                       </p>
                                     </div>
                                   </div>

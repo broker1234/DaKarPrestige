@@ -722,7 +722,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                       <td className="py-4">
                         <div className="flex items-center gap-2 text-sm text-gray-500">
                           <Clock className="w-4 h-4" />
-                          {listing.createdAt?.toDate ? listing.createdAt.toDate().toLocaleDateString() : 'N/A'}
+                          {listing.createdAt?.toDate ? listing.createdAt.toDate().toLocaleDateString('fr-FR') : 'N/A'}
                         </div>
                       </td>
                       <td className="py-4">
@@ -872,7 +872,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                       <td className="py-4">
                         <div className="flex items-center gap-2 text-sm text-gray-500">
                           <Clock className="w-4 h-4" />
-                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString() : 'N/A'}
+                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'N/A'}
                         </div>
                       </td>
                       <td className="py-4">
@@ -1099,7 +1099,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                       </td>
                       <td className="py-4">
                         <div className="text-sm text-gray-500">
-                          {w.createdAt?.toDate ? w.createdAt.toDate().toLocaleDateString() : 'Récemment'}
+                          {w.createdAt?.toDate ? w.createdAt.toDate().toLocaleDateString('fr-FR') : 'Récemment'}
                         </div>
                       </td>
                       <td className="py-4">

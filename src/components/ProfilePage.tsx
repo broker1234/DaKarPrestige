@@ -577,7 +577,7 @@ export default function ProfilePage({
                             <p className="font-black text-gray-900">{transfer.listingTitle}</p>
                             <p className="text-xs text-gray-500">Courtier: <span className="font-bold">{transfer.courtierName}</span></p>
                             <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                              {transfer.createdAt?.toDate ? transfer.createdAt.toDate().toLocaleDateString() : 'Récemment'}
+                              {transfer.createdAt?.toDate ? transfer.createdAt.toDate().toLocaleDateString('fr-FR') : 'Récemment'}
                             </p>
                           </div>
                         </div>
@@ -1145,7 +1145,7 @@ export default function ProfilePage({
                         <p className="text-xs text-gray-500 line-clamp-2 italic mb-4">"{request.description}"</p>
                         <div className="flex items-center gap-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                           <Clock className="w-3 h-3" />
-                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString() : 'À l\'instant'}
+                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'À l\'instant'}
                         </div>
                       </div>
                     ))

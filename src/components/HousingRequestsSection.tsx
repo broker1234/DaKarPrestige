@@ -11,6 +11,11 @@ export default function HousingRequestsSection() {
   const [user] = useAuthState(auth);
   const [requests, setRequests] = useState<HousingRequest[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -100,7 +105,7 @@ export default function HousingRequestsSection() {
               <h4 className="font-black text-slate-900 text-lg leading-tight">{request.userName}</h4>
               <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-400 uppercase tracking-[0.15em]">
                 <Clock className="w-3 h-3 text-brand-500" />
-                {timeAgo(request.createdAt?.toDate())}
+                {isMounted ? timeAgo(request.createdAt?.toDate()) : '...'}
               </div>
             </div>
             <div className="ml-auto">
