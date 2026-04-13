@@ -5,6 +5,7 @@ import { useCurrency } from '../lib/currency';
 import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp, doc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
+import { UserProfile } from '../types';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface ServiceOffer {
@@ -153,56 +154,25 @@ export default function ServicesPro() {
 
     setIsProcessing(true);
     try {
-      // Check if user has enough balance
-      const balance = userProfile.balance || 0;
-      
-      if (balance >= offer.price) {
-        // Pay with wallet
-        const transactionId = Math.random().toString(36).substring(2, 15);
-        const newTransaction = {
-          id: transactionId,
-          type: 'purchase' as const,
-          amount: offer.price,
-          description: `Achat Service: ${offer.title}`,
-          status: 'completed' as const,
-          createdAt: new Date()
-        };
+      // Always use manual payment via Wave for paid services
+      // For free services (price 0), we can mark as Validated immediately
+      const isFree = offer.price === 0;
 
-        const userRef = doc(db, 'users', user.uid);
-        await updateDoc(userRef, {
-          balance: balance - offer.price,
-          transactions: arrayUnion(newTransaction)
-        });
+      await addDoc(collection(db, 'service_requests'), {
+        userId: user.uid,
+        userEmail: user.email,
+        serviceType: offer.type,
+        price: offer.price,
+        status: isFree ? "Validé" : "En attente",
+        createdAt: serverTimestamp(),
+        paymentMethod: isFree ? "Free" : "Manual"
+      });
 
-        // Create a service request as "Validé"
-        await addDoc(collection(db, 'service_requests'), {
-          userId: user.uid,
-          userEmail: user.email,
-          serviceType: offer.type,
-          price: offer.price,
-          status: "Validé",
-          createdAt: serverTimestamp(),
-          paymentMethod: "Wallet"
-        });
+      setSelectedService(offer);
+      setShowSuccessModal(true);
 
-        setSelectedService(offer);
-        setShowSuccessModal(true);
-      } else {
-        // Not enough balance, fallback to manual payment
-        await addDoc(collection(db, 'service_requests'), {
-          userId: user.uid,
-          userEmail: user.email,
-          serviceType: offer.type,
-          price: offer.price,
-          status: "En attente",
-          createdAt: serverTimestamp(),
-          paymentMethod: "Manual"
-        });
-
-        setSelectedService(offer);
-        setShowSuccessModal(true);
-
-        // Open Wave payment link in a new tab
+      // Open Wave payment link in a new tab for paid services
+      if (!isFree) {
         window.open(WAVE_PAYMENT_LINK, '_blank');
       }
     } catch (error) {
@@ -216,16 +186,6 @@ export default function ServicesPro() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-12">
-      <div className="flex justify-center mb-12">
-        <button
-          onClick={() => window.open('https://wa.me/221789619088?text=Bonjour,%20je%20souhaite%20recharger%20mon%20solde%20Dakar%20Prestige.', '_blank')}
-          className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl shadow-emerald-500/20 transition-all flex items-center gap-3 group"
-        >
-          <DollarSign className="w-6 h-6 group-hover:scale-110 transition-transform" />
-          Recharger mon solde
-        </button>
-      </div>
-
       <div className="text-center mb-16">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -388,7 +348,7 @@ export default function ServicesPro() {
             </div>
             <h4 className="text-xl font-black text-gray-900 mb-4">Comment payer ?</h4>
             <p className="text-gray-600 text-sm leading-relaxed mb-6">
-              Le rechargement de votre solde et le paiement des services se font via <span className="font-bold text-blue-600">Wave</span> ou <span className="font-bold text-orange-500">Orange Money</span>.
+              Le paiement des services se fait via <span className="font-bold text-blue-600">Wave</span> ou <span className="font-bold text-orange-500">Orange Money</span>.
             </p>
             <div className="space-y-3">
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
