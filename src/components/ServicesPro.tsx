@@ -382,10 +382,11 @@ export default function ServicesPro() {
       </div>
 
       {/* Success Modal */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {showSuccessModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div key="success-modal-container" className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
+              key="success-modal-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -393,6 +394,7 @@ export default function ServicesPro() {
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             />
             <motion.div
+              key="success-modal-content"
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}

@@ -7,6 +7,7 @@ import { Shield, Rocket, Trash2, Calendar, User, Clock, CheckCircle, XCircle, Sh
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface AdminDashboardProps {
+  key?: string;
   onClose: () => void;
   isAdmin?: boolean;
 }
@@ -565,8 +566,10 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm">
       <motion.div 
+        key="admin-dashboard-content"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
         className="bg-white rounded-3xl w-full max-w-6xl h-[95vh] sm:h-[90vh] overflow-hidden flex flex-col shadow-2xl"
       >
         <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">

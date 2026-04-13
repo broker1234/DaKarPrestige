@@ -8,6 +8,7 @@ import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { useAuthState } from 'react-firebase-hooks/auth';
 
 interface HousingRequestModalProps {
+  key?: string;
   isOpen: boolean;
   onClose: () => void;
   userProfile: UserProfile | null;
@@ -60,22 +61,22 @@ export default function HousingRequestModal({ isOpen, onClose, userProfile }: Ho
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
-          >
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div
+        key="housing-request-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+      />
+      <motion.div
+        key="housing-request-modal"
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+      >
             <div className="p-8 border-b border-slate-50 flex items-center justify-between bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
               <div>
                 <h2 className="text-2xl font-black">Ma Demande</h2>
@@ -174,8 +175,6 @@ export default function HousingRequestModal({ isOpen, onClose, userProfile }: Ho
               </button>
             </form>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+    </div>
   );
 }

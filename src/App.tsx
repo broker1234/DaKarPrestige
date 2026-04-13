@@ -335,10 +335,11 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
       {/* Global Delete Confirmation Modal */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {listingToDelete && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div key="delete-modal" className="fixed inset-0 z-[200] flex items-center justify-center p-4">
             <motion.div
+              key="delete-backdrop"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -346,6 +347,7 @@ function AppContent() {
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             />
             <motion.div
+              key="delete-content"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
@@ -388,11 +390,16 @@ function AppContent() {
         isAdmin={!!isUserAdmin}
       />
       
-      <AuthModal 
-        isOpen={isAuthModalOpen} 
-        onClose={() => setIsAuthModalOpen(false)} 
-        onSuccess={handleAuthSuccess}
-      />
+      <AnimatePresence mode="wait">
+        {isAuthModalOpen && (
+          <AuthModal 
+            key="auth-modal"
+            isOpen={isAuthModalOpen} 
+            onClose={() => setIsAuthModalOpen(false)} 
+            onSuccess={handleAuthSuccess}
+          />
+        )}
+      </AnimatePresence>
 
       <CommissionClaimForm
         isOpen={claimModal.isOpen}
@@ -402,9 +409,9 @@ function AppContent() {
         userProfile={userProfile}
       />
 
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {isAdminOpen && isUserAdmin && (
-          <AdminDashboard isAdmin={!!isUserAdmin} onClose={() => setIsAdminOpen(false)} />
+          <AdminDashboard key="admin-dashboard" isAdmin={!!isUserAdmin} onClose={() => setIsAdminOpen(false)} />
         )}
       </AnimatePresence>
 
@@ -558,11 +565,13 @@ function AppContent() {
       </main>
 
       {/* Floating Action Button for Mobile */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {(userProfile?.role === 'courtier' || userProfile?.role === 'aide_courtier') && (
           <motion.button
+            key="fab-add"
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0, opacity: 0 }}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
             onClick={() => setIsModalOpen(true)}
@@ -704,35 +713,50 @@ function AppContent() {
         </div>
       </footer>
 
-      <AddListingModal 
-        isOpen={isModalOpen} 
-        onClose={() => {
-          setIsModalOpen(false);
-          setListingToEdit(null);
-        }} 
-        listingToEdit={listingToEdit}
-      />
+      <AnimatePresence mode="wait">
+        {isModalOpen && (
+          <AddListingModal 
+            key="add-listing-modal"
+            isOpen={isModalOpen} 
+            onClose={() => {
+              setIsModalOpen(false);
+              setListingToEdit(null);
+            }} 
+            listingToEdit={listingToEdit}
+          />
+        )}
+      </AnimatePresence>
 
-      <HousingRequestModal
-        isOpen={isRequestModalOpen}
-        onClose={() => setIsRequestModalOpen(false)}
-        userProfile={userProfile}
-      />
+      <AnimatePresence mode="wait">
+        {isRequestModalOpen && (
+          <HousingRequestModal
+            key="housing-request-modal"
+            isOpen={isRequestModalOpen}
+            onClose={() => setIsRequestModalOpen(false)}
+            userProfile={userProfile}
+          />
+        )}
+      </AnimatePresence>
 
-      <ListingDetailModal 
-        listing={selectedListing}
-        isOpen={!!selectedListing}
-        onClose={() => setSelectedListing(null)}
-        isFavorite={selectedListing ? isFavorite(selectedListing.id) : false}
-        onToggleFavorite={toggleFavorite}
-        isOwner={selectedListing?.courtierId === user?.uid}
-        onDelete={(id) => setListingToDelete(id)}
-        onEdit={(listing) => {
-          setListingToEdit(listing);
-          setIsModalOpen(true);
-        }}
-        userProfile={userProfile}
-      />
+      <AnimatePresence mode="wait">
+        {selectedListing && (
+          <ListingDetailModal 
+            key={`detail-${selectedListing.id}`}
+            listing={selectedListing}
+            isOpen={!!selectedListing}
+            onClose={() => setSelectedListing(null)}
+            isFavorite={selectedListing ? isFavorite(selectedListing.id) : false}
+            onToggleFavorite={toggleFavorite}
+            isOwner={selectedListing?.courtierId === user?.uid}
+            onDelete={(id) => setListingToDelete(id)}
+            onEdit={(listing) => {
+              setListingToEdit(listing);
+              setIsModalOpen(true);
+            }}
+            userProfile={userProfile}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

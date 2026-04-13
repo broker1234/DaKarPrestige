@@ -9,6 +9,7 @@ import { useAuthState } from 'react-firebase-hooks/auth';
 import { Listing } from '../types';
 
 interface AddListingModalProps {
+  key?: string;
   isOpen: boolean;
   onClose: () => void;
   listingToEdit?: Listing | null;
@@ -521,22 +522,22 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-3xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
-          >
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div
+        key="add-listing-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+      />
+      <motion.div
+        key="add-listing-modal"
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-3xl bg-white rounded-[2.5rem] shadow-2xl overflow-hidden"
+      >
             {/* Header */}
             <div className="p-8 border-b border-slate-50 flex items-center justify-between">
               <div>
@@ -613,8 +614,6 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
               </div>
             </form>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+    </div>
   );
 }

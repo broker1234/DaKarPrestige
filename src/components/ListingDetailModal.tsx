@@ -12,6 +12,7 @@ import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { useCurrency } from '../lib/currency';
 
 interface ListingDetailModalProps {
+  key?: string;
   listing: Listing | null;
   isOpen: boolean;
   onClose: () => void;
@@ -190,24 +191,24 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-4">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-black/80 backdrop-blur-md"
-          />
-          
-            <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 40 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 40 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="relative bg-white w-full h-full sm:h-[90vh] sm:max-w-6xl sm:rounded-[3rem] overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] flex flex-col md:flex-row"
-          >
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-0 sm:p-4">
+      <motion.div
+        key="modal-backdrop"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+      />
+      
+      <motion.div
+        key="modal-content"
+        initial={{ opacity: 0, scale: 0.95, y: 40 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 40 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="relative bg-white w-full h-full sm:h-[90vh] sm:max-w-6xl sm:rounded-[3rem] overflow-hidden shadow-[0_32px_64px_-16px_rgba(0,0,0,0.3)] flex flex-col md:flex-row"
+      >
             <button 
               onClick={onClose}
               className="absolute top-6 right-6 z-[60] p-3 bg-white/90 hover:bg-white text-slate-900 rounded-2xl shadow-xl transition-all hover:scale-110 active:scale-95 group"
@@ -733,8 +734,6 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
               </div>
             </div>
           </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+    </div>
   );
 }
