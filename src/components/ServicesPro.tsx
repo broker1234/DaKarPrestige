@@ -5,7 +5,7 @@ import { useCurrency } from '../lib/currency';
 import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp, doc, onSnapshot, updateDoc, arrayUnion } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { UserProfile } from '../types';
+import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
 interface ServiceOffer {
   id: string;
@@ -207,7 +207,8 @@ export default function ServicesPro() {
       }
     } catch (error) {
       console.error("Error creating service request:", error);
-      alert("Une erreur est survenue lors de la création de la demande.");
+      handleFirestoreError(auth, error, OperationType.CREATE, 'service_requests');
+      alert("Une erreur est survenue lors de la création de la demande. Veuillez vérifier votre connexion ou contacter le support.");
     } finally {
       setIsProcessing(false);
     }

@@ -110,7 +110,8 @@ service cloud.firestore {
              data.serviceType in ["Badge VÉRIFIÉ", "BOOST Semaine", "BOOST Mois", "PACK Agence", "Pack Découverte", "Boost Flash 24h"] &&
              data.price is number &&
              data.status in ["En attente", "Validé"] &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (!('paymentMethod' in data) || data.paymentMethod in ["Wallet", "Manual"]);
     }
 
     function isValidHousingRequest(data) {
@@ -194,7 +195,7 @@ service cloud.firestore {
       allow read: if isOwner(resource.data.userId) || isAdmin();
       allow create: if isAuthenticated() && isValidServiceRequest(request.resource.data) && 
                       request.resource.data.userId == request.auth.uid &&
-                      request.resource.data.status == "En attente";
+                      (request.resource.data.status == "En attente" || request.resource.data.status == "Validé");
       allow update: if isAdmin();
       allow delete: if isAdmin();
     }
