@@ -16,17 +16,19 @@ import ServicesPro from './components/ServicesPro';
 import RegistrationPage from './components/RegistrationPage';
 import AdminDashboard from './components/AdminDashboard';
 import AuthModal from './components/AuthModal';
+import BoostManager from './components/BoostManager';
+import MissionsUrgentes from './components/MissionsUrgentes';
 import CommissionClaimForm from './components/CommissionClaimForm';
 import HousingRequestModal from './components/HousingRequestModal';
 import HousingRequestsSection from './components/HousingRequestsSection';
 import FAQ from './components/FAQ';
-import { Plus, MessageCircle, Trash2, Shield, Search, Rocket } from 'lucide-react';
+import { Plus, MessageCircle, Trash2, Shield, Search, Rocket, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError, OperationType } from './lib/firestore-errors';
 
 import { CurrencyProvider } from './lib/currency';
 
-type View = 'home' | 'profile' | 'services' | 'inscription' | 'requests' | 'public-profile';
+type View = 'home' | 'profile' | 'services' | 'inscription' | 'requests' | 'public-profile' | 'missions';
 
 export default function App() {
   return (
@@ -41,12 +43,13 @@ function AppContent() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState(true);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [adminAlertsCount, setAdminAlertsCount] = useState(0);
 
   const adminEmails = ["peter2005ngouala@gmail.com", "peterngouala@gmail.com", "peter25ngouala@gmail.com"];
   
-  // Robust admin check: Prioritize Firestore role, fallback to verified email for super admins
+  // Robust admin check: Prioritize Firestore role, fallback for super admins
   const isUserAdmin = userProfile?.role === 'admin' || 
-    (user?.email && adminEmails.includes(user.email) && user.emailVerified);
+    (user?.email && adminEmails.includes(user.email));
 
   // Fetch notifications
   useEffect(() => {
@@ -65,6 +68,25 @@ function AppContent() {
       return () => unsubscribe();
     }
   }, [user]);
+
+  // Fetch admin alerts count
+  useEffect(() => {
+    if (isUserAdmin) {
+      const q = query(
+        collection(db, 'admin_alerts'),
+        where('status', '==', 'unread')
+      );
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        setAdminAlertsCount(snapshot.size);
+      }, (error) => {
+        handleFirestoreError(auth, error, OperationType.LIST, 'admin_alerts');
+      });
+      return () => unsubscribe();
+    } else {
+      setAdminAlertsCount(0);
+    }
+  }, [isUserAdmin]);
+
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,12 +98,15 @@ function AppContent() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
 
-  // Protection des routes admin
+  // Protection des routes admin et services
   useEffect(() => {
     if (isAdminOpen && !isUserAdmin) {
       setIsAdminOpen(false);
     }
-  }, [isAdminOpen, isUserAdmin]);
+    if (currentView === 'services' && userProfile?.role !== 'courtier' && userProfile?.role !== 'aide_courtier') {
+      setCurrentView('home');
+    }
+  }, [isAdminOpen, isUserAdmin, currentView, userProfile]);
 
   // Handle navigation from Navbar or other components
   useEffect(() => {
@@ -183,6 +208,9 @@ function AppContent() {
     }
   }, []);
 
+  const [listingsLimit, setListingsLimit] = useState(10);
+  const [hasMore, setHasMore] = useState(true);
+
   // Fetch user profile
   useEffect(() => {
     if (user) {
@@ -214,7 +242,7 @@ function AppContent() {
     setLoading(true);
     // Note: To sort by plan, we would ideally have the plan on the listing itself.
     // Since it's on the user profile, we'll fetch and then sort in memory for now.
-    let q = query(collection(db, 'listings'), orderBy('isBoosted', 'desc'), orderBy('createdAt', 'desc'), limit(100));
+    let q = query(collection(db, 'listings'), orderBy('isBoosted', 'desc'), orderBy('createdAt', 'desc'), limit(listingsLimit + 1));
 
     if (filters.neighborhood) {
       q = query(q, where('neighborhood', '==', filters.neighborhood));
@@ -251,7 +279,8 @@ function AppContent() {
       // if the courtier info is denormalized. If not, we'll just keep the current sort.
       // To implement this properly, we should denormalize the courtierPlan on the listing.
       
-      setListings(fetchedListings);
+      setHasMore(fetchedListings.length > listingsLimit);
+      setListings(fetchedListings.slice(0, listingsLimit));
       setLoading(false);
     }, (error) => {
       handleFirestoreError(auth, error, OperationType.LIST, 'listings');
@@ -320,6 +349,8 @@ function AppContent() {
     }
   };
 
+  const isIdentityComplete = !!(userProfile?.nom && userProfile?.prenom);
+
   // Global loading state to prevent hydration errors and ensure auth readiness
   if (authLoading || (user && isProfileLoading)) {
     return (
@@ -334,6 +365,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+      <BoostManager isAdmin={!!isUserAdmin} />
       {/* Global Delete Confirmation Modal */}
       <AnimatePresence mode="wait">
         {listingToDelete && (
@@ -378,16 +410,25 @@ function AppContent() {
       </AnimatePresence>
 
       <Navbar 
-        onAddListing={() => setIsModalOpen(true)} 
+        onAddListing={() => {
+          if (!isIdentityComplete) {
+            alert("Veuillez renseigner votre Nom et Prénom dans votre profil avant de publier une annonce.");
+            setCurrentView('profile');
+            return;
+          }
+          setIsModalOpen(true);
+        }} 
         onProfileClick={() => setCurrentView('profile')}
         onHomeClick={() => setCurrentView('home')}
         onAdminClick={() => setIsAdminOpen(true)}
         onServicesClick={() => setCurrentView('services')}
         onRequestsClick={() => setCurrentView('requests')}
+        onMissionsClick={() => setCurrentView('missions')}
         onAuthClick={() => setIsAuthModalOpen(true)}
         userProfile={userProfile}
         notifications={notifications}
         isAdmin={!!isUserAdmin}
+        adminAlertsCount={adminAlertsCount}
       />
       
       <AnimatePresence mode="wait">
@@ -416,6 +457,25 @@ function AppContent() {
       </AnimatePresence>
 
       <main className="pt-20">
+        {user && !isIdentityComplete && currentView !== 'inscription' && (
+          <div className="bg-red-600 text-white py-3 px-4 sticky top-20 z-[80] shadow-lg animate-pulse">
+            <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
+                <p className="text-xs md:text-sm font-black uppercase tracking-wider">
+                  Identité incomplète : Veuillez renseigner votre Nom et Prénom dans votre profil pour débloquer toutes les fonctionnalités.
+                </p>
+              </div>
+              <button 
+                onClick={() => setCurrentView('profile')}
+                className="bg-white text-red-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-gray-100 transition-all shrink-0"
+              >
+                Compléter
+              </button>
+            </div>
+          </div>
+        )}
+
         {currentView === 'inscription' ? (
           <RegistrationPage 
             onSuccess={() => setCurrentView('home')} 
@@ -512,12 +572,25 @@ function AppContent() {
                   onViewListing={setSelectedListing}
                   userProfile={userProfile}
                 />
+
+                {/* Load More Button */}
+                {hasMore && !loading && listings.length > 0 && (
+                  <div className="mt-12 text-center">
+                    <button 
+                      onClick={() => setListingsLimit(prev => prev + 10)}
+                      className="bg-white border-2 border-blue-600 text-blue-600 px-8 py-4 rounded-2xl font-black hover:bg-blue-50 transition-all shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2 mx-auto"
+                    >
+                      Voir plus d'annonces
+                      <Plus className="w-5 h-5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             <FAQ />
           </>
         ) : currentView === 'services' ? (
-          <ServicesPro />
+          <ServicesPro userProfile={userProfile} />
         ) : currentView === 'requests' ? (
           <div className="max-w-7xl mx-auto px-4 py-12">
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-12 gap-6">
@@ -545,6 +618,14 @@ function AppContent() {
             isFavorite={isFavorite}
             onToggleFavorite={toggleFavorite}
             currentUserProfile={userProfile}
+          />
+        ) : currentView === 'missions' ? (
+          <MissionsUrgentes 
+            onViewListing={setSelectedListing}
+            isFavorite={isFavorite}
+            onToggleFavorite={toggleFavorite}
+            userProfile={userProfile}
+            onAuthClick={() => setIsAuthModalOpen(true)}
           />
         ) : (
           <ProfilePage 
@@ -574,7 +655,14 @@ function AppContent() {
             exit={{ scale: 0, opacity: 0 }}
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={() => setIsModalOpen(true)}
+            onClick={() => {
+              if (!isIdentityComplete) {
+                alert("Veuillez renseigner votre Nom et Prénom dans votre profil avant de publier une annonce.");
+                setCurrentView('profile');
+                return;
+              }
+              setIsModalOpen(true);
+            }}
             className="md:hidden fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-2xl shadow-2xl z-40"
           >
             <Plus className="w-6 h-6" />
@@ -608,33 +696,38 @@ function AppContent() {
           <div>
             <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-8">Navigation</h4>
             <ul className="space-y-4">
-              {['Accueil', 'Services Pro', 'Demandes', 'FAQ', 'Mon Profil', 'Inscription'].map((item) => (
-                <li key={item}>
-                  <button 
-                    onClick={() => {
-                      if (item === 'FAQ') {
-                        setCurrentView('home');
-                        setTimeout(() => {
-                          document.getElementById('faq')?.scrollIntoView({ behavior: 'smooth' });
-                        }, 100);
-                        return;
-                      }
-                      const viewMap: Record<string, View> = {
-                        'Accueil': 'home',
-                        'Services Pro': 'services',
-                        'Demandes': 'requests',
-                        'Mon Profil': 'profile',
-                        'Inscription': 'inscription'
-                      };
-                      setCurrentView(viewMap[item]);
-                      window.scrollTo(0, 0);
-                    }}
-                    className="text-slate-400 hover:text-brand-500 font-bold transition-colors"
-                  >
-                    {item}
-                  </button>
-                </li>
-              ))}
+              {['Accueil', 'Services Pro', 'Demandes', 'FAQ', 'Mon Profil', 'Inscription'].map((item) => {
+                if (item === 'Services Pro' && userProfile?.role !== 'courtier' && userProfile?.role !== 'aide_courtier') {
+                  return null;
+                }
+                return (
+                  <li key={item}>
+                    <button 
+                      onClick={() => {
+                        if (item === 'FAQ') {
+                          setCurrentView('home');
+                          setTimeout(() => {
+                            document.getElementById('faq')?.scrollIntoView({ behavior: 'smooth' });
+                          }, 100);
+                          return;
+                        }
+                        const viewMap: Record<string, View> = {
+                          'Accueil': 'home',
+                          'Services Pro': 'services',
+                          'Demandes': 'requests',
+                          'Mon Profil': 'profile',
+                          'Inscription': 'inscription'
+                        };
+                        setCurrentView(viewMap[item]);
+                        window.scrollTo(0, 0);
+                      }}
+                      className="text-slate-400 hover:text-brand-500 font-bold transition-colors"
+                    >
+                      {item}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
 
@@ -662,7 +755,7 @@ function AppContent() {
             <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500 mb-8">Contact</h4>
             <div className="space-y-6">
               <a 
-                href="https://wa.me/221789619088" 
+                href="https://wa.me/221785783443" 
                 className="group flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10 hover:bg-brand-600/10 hover:border-brand-600/50 transition-all"
               >
                 <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center text-green-500 group-hover:bg-green-500 group-hover:text-white transition-all">
@@ -670,7 +763,7 @@ function AppContent() {
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">WhatsApp Support</p>
-                  <p className="text-sm font-black">+221 78 961 90 88</p>
+                  <p className="text-sm font-black">+221 78 578 34 43</p>
                 </div>
               </a>
               <div className="p-4 rounded-2xl bg-white/5 border border-white/10">

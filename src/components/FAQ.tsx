@@ -120,7 +120,7 @@ export default function FAQ() {
             <h3 className="text-2xl font-black mb-4">Vous avez encore des questions ?</h3>
             <p className="text-slate-400 mb-8 font-medium">Notre équipe est disponible 7j/7 pour vous accompagner dans votre recherche.</p>
             <a 
-              href="https://wa.me/221770000000" 
+              href="https://wa.me/221785783443" 
               target="_blank" 
               rel="noopener noreferrer"
               className="inline-flex items-center gap-3 bg-brand-600 hover:bg-brand-700 text-white px-8 py-4 rounded-2xl font-black transition-all shadow-xl shadow-brand-600/20 hover:scale-105 active:scale-95"

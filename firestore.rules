@@ -13,9 +13,9 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && 
         (
-          (request.auth.token.email in ["peter2005ngouala@gmail.com", "peterngouala@gmail.com", "peter25ngouala@gmail.com"] && request.auth.token.email_verified == true) ||
+          (request.auth.token.email in ["peter2005ngouala@gmail.com", "peterngouala@gmail.com", "peter25ngouala@gmail.com"]) ||
           (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'admin')
         );
     }
 
@@ -28,7 +28,9 @@ service cloud.firestore {
     function isSpecialAide() {
       return isAuthenticated() && 
              (request.auth.token.email == "aide1courtier@gmail.com" || 
-              request.auth.uid == "XHRMWa6wjcU1XXe67vec2A14Pri1");
+              request.auth.token.email == "courtier1@gmail.com" ||
+              request.auth.uid == "XHRMWa6wjcU1XXe67vec2A14Pri1" ||
+              request.auth.uid == "V8x8KeKKQGTVqaJ0XYhdIbMoM2r1");
     }
 
     function isAuthorizedToPublish() {
@@ -50,6 +52,8 @@ service cloud.firestore {
       return data.keys().hasAll(['uid', 'role']) &&
              data.uid is string &&
              data.role in ['user', 'courtier', 'aide_courtier', 'admin'] &&
+             (!('nom' in data) || data.nom is string) &&
+             (!('prenom' in data) || data.prenom is string) &&
              (!('country' in data) || data.country is string) &&
              (!('favorites' in data) || data.favorites is list) &&
              (!('phone' in data) || data.phone is string) &&
@@ -61,21 +65,22 @@ service cloud.firestore {
     }
 
     function isValidListing(data) {
-      return data.keys().hasAll(['title', 'description', 'price', 'neighborhood', 'type', 'whatsapp', 'courtierId', 'images', 'videos', 'createdAt']) &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
-             data.description is string && data.description.size() > 0 && data.description.size() < 2000 &&
+      let requiredFields = ['title', 'description', 'price', 'neighborhood', 'type', 'whatsapp', 'courtierId', 'images', 'videos', 'createdAt'];
+      return data.keys().hasAll(requiredFields) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 5000 &&
              data.price is number && data.price >= 0 &&
              (!('visitFee' in data) || (data.visitFee is number && data.visitFee >= 0)) &&
-             (!('tags' in data) || (data.tags is list && data.tags.size() <= 10)) &&
-             (!('proximity' in data) || (data.proximity is list && data.proximity.size() <= 10)) &&
-             data.neighborhood is string && data.neighborhood.size() >= 0 &&
-             data.type in ["Chambre étudiant", "Appartement", "Villa", "Logement Entier"] &&
-             (!('stayType' in data) || data.stayType in ["Location Courte Durée", "Location Longue Durée"]) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 20)) &&
+             (!('proximity' in data) || (data.proximity is list && data.proximity.size() <= 20)) &&
+             data.neighborhood is string &&
+             data.type in ["Chambre étudiant", "Appartement", "Villa", "Logement Entier", "Studio", "Chambre", "Terrain", "Bureau", "Magasin"] &&
+             (!('stayType' in data) || data.stayType is string) &&
              (!('lat' in data) || data.lat is number) &&
              (!('lng' in data) || data.lng is number) &&
-             data.whatsapp is string && data.whatsapp.size() >= 0 &&
-             data.images is list && data.images.size() <= 6 &&
-             data.videos is list && data.videos.size() <= 2 &&
+             data.whatsapp is string &&
+             data.images is list && data.images.size() <= 10 &&
+             data.videos is list && data.videos.size() <= 5 &&
              (data.createdAt is timestamp || data.createdAt is string) &&
              (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string || data.updatedAt == null) &&
              data.courtierId is string &&
@@ -83,11 +88,12 @@ service cloud.firestore {
              (!('boostUntil' in data) || data.boostUntil is timestamp || data.boostUntil is string) &&
              (!('isVerified' in data) || data.isVerified is bool) &&
              (!('commissionAideCourtier' in data) || data.commissionAideCourtier is number) &&
+             (!('allowCollaboration' in data) || data.allowCollaboration is bool) &&
              (!('bedrooms' in data) || data.bedrooms is number) &&
              (!('bathrooms' in data) || data.bathrooms is number) &&
              (!('courtierName' in data) || data.courtierName is string) &&
              (!('courtierPhoto' in data) || data.courtierPhoto is string) &&
-             (!('status' in data) || data.status in ["Disponible", "Loué", "Bloqué"]) &&
+             (!('status' in data) || data.status is string) &&
              (!('views' in data) || data.views is number) &&
              (!('favorites' in data) || data.favorites is number) &&
              (!('favoritesCount' in data) || data.favoritesCount is number);
@@ -140,12 +146,88 @@ service cloud.firestore {
              (!('clientName' in data) || (data.clientName is string || data.clientName == null));
     }
 
+    function isValidRechargeRequest(data) {
+      return data.keys().hasAll(['userId', 'amount', 'tarifChoisi', 'captureUrl', 'status', 'createdAt']) &&
+             data.userId is string &&
+             data.amount is number &&
+             data.tarifChoisi is number &&
+             data.captureUrl is string &&
+             data.status in ['en_attente', 'valide', 'rejete'] &&
+             data.createdAt is timestamp &&
+             (!('userName' in data) || data.userName is string) &&
+             (!('userEmail' in data) || data.userEmail is string);
+    }
+
+    function isValidWithdrawalRequest(data) {
+      return data.keys().hasAll(['userId', 'amount', 'method', 'status', 'createdAt', 'phoneNumber', 'firstName', 'lastName']) &&
+             data.userId is string &&
+             data.amount is number && data.amount >= 5000 &&
+             data.method in ['Wave', 'Orange Money'] &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 9 &&
+             data.firstName is string && data.firstName.size() > 0 &&
+             data.lastName is string && data.lastName.size() > 0 &&
+             data.status in ['en_attente', 'valide', 'rejete'] &&
+             data.createdAt is timestamp &&
+             (!('userName' in data) || data.userName is string) &&
+             (!('userEmail' in data) || data.userEmail is string);
+    }
+
+    function isValidBoostRequest(data) {
+      return data.keys().hasAll(['listingId', 'courtierId', 'amount', 'duration', 'status', 'createdAt', 'serviceName', 'startDate', 'startTime', 'startDateTime']) &&
+             data.listingId is string &&
+             data.courtierId is string &&
+             data.amount is number &&
+             data.duration is number &&
+             data.serviceName is string &&
+             data.startDate is string &&
+             data.startTime is string &&
+             data.startDateTime is string &&
+             data.status in ['en_attente', 'valide', 'rejete', 'approuve_programme', 'actif'] &&
+             data.createdAt is timestamp &&
+             (!('listingTitle' in data) || data.listingTitle is string) &&
+             (!('courtierName' in data) || data.courtierName is string) &&
+             (!('promoCode' in data) || (data.promoCode is string || data.promoCode == null));
+    }
+
+    function isValidPromoCode(data) {
+      return data.keys().hasAll(['codeName', 'reduction', 'reductionType', 'dateExpiration', 'estActif', 'createdAt']) &&
+             data.codeName is string &&
+             data.reduction is number &&
+             data.reductionType in ['percent', 'fixed'] &&
+             (data.dateExpiration is timestamp || data.dateExpiration is string) &&
+             data.estActif is bool &&
+             data.createdAt is timestamp &&
+             (!('afficherBarreDefilante' in data) || data.afficherBarreDefilante is bool);
+    }
+
+    function isValidVideoAccessRequest(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'type', 'amount', 'status', 'createdAt']) &&
+             data.userId is string &&
+             data.userEmail is string &&
+             data.type in ['single', 'business'] &&
+             data.amount is number &&
+             data.status in ['en_attente', 'valide', 'rejete'] &&
+             data.createdAt is timestamp;
+    }
+
     match /users/{userId} {
       allow read: if isAuthenticated();
       allow create: if isOwner(userId) && isValidUser(request.resource.data);
       allow update: if isAdmin() || 
-                    (isOwner(userId) && isValidUser(request.resource.data) && request.resource.data.role == resource.data.role) ||
+                    (isOwner(userId) && isValidUser(request.resource.data) && 
+                     request.resource.data.role == resource.data.role &&
+                     // Protect balance and transactions from user modification
+                     request.resource.data.get('balance', resource.data.get('balance', 0)) == resource.data.get('balance', 0) &&
+                     request.resource.data.get('transactions', resource.data.get('transactions', [])) == resource.data.get('transactions', []) &&
+                     request.resource.data.get('isBlocked', resource.data.get('isBlocked', false)) == resource.data.get('isBlocked', false)) ||
                     (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['affiliateClicks', 'favorites']) && isOwner(userId));
+      allow delete: if isAdmin();
+    }
+
+    match /admin_alerts/{alertId} {
+      allow read: if isAdmin() || (isAuthenticated() && request.auth.token.email in ["peter2005ngouala@gmail.com", "peterngouala@gmail.com", "peter25ngouala@gmail.com"]);
+      allow create: if false; // Only via server-side
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -215,6 +297,45 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidLeadTransfer(request.resource.data) && 
                       request.resource.data.affiliateId == request.auth.uid;
       allow update: if isAdmin();
+    }
+
+    match /recharge_requests/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidRechargeRequest(request.resource.data) && 
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.status == 'en_attente';
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /withdrawal_requests/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidWithdrawalRequest(request.resource.data) && 
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.status == 'en_attente';
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /demandes_boost/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.courtierId == request.auth.uid);
+      allow create: if isAuthenticated() && isValidBoostRequest(request.resource.data) && 
+                      request.resource.data.courtierId == request.auth.uid &&
+                      request.resource.data.status == 'en_attente';
+      allow update, delete: if isAdmin();
+    }
+
+    match /promo_codes/{codeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /video_access_requests/{requestId} {
+      allow read: if isAdmin() || (isAuthenticated() && (resource == null || resource.data.userId == request.auth.uid));
+      allow create: if isAuthenticated() && isValidVideoAccessRequest(request.resource.data) && 
+                      request.resource.data.userId == request.auth.uid &&
+                      request.resource.data.status == 'en_attente';
+      allow update, delete: if isAdmin();
     }
   }
 }

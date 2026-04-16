@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { loginWithEmail, registerWithEmail, loginWithGoogle } from '../lib/auth';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Mail, Lock, LogIn, UserPlus, ShieldCheck, AlertCircle } from 'lucide-react';
+import { X, Mail, Lock, LogIn, UserPlus, ShieldCheck, AlertCircle, KeyRound } from 'lucide-react';
+import { auth } from '../firebase';
+import { sendPasswordResetEmail } from 'firebase/auth';
 
 interface AuthModalProps {
   key?: string;
@@ -16,6 +18,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,22 +27,55 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
 
     try {
       let result;
+      const trimmedEmail = email.trim();
       if (isLogin) {
-        result = await loginWithEmail(email, password);
+        result = await loginWithEmail(trimmedEmail, password);
       } else {
-        result = await registerWithEmail(email, password);
+        result = await registerWithEmail(trimmedEmail, password);
       }
       onSuccess(result.isNewUser);
     } catch (err: any) {
       console.error("Auth error:", err);
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setError("Email ou mot de passe incorrect. Assurez-vous également que la connexion par email est activée dans votre console Firebase.");
+        setError("Email ou mot de passe incorrect. \n\nNote: Si c'est un nouveau compte, utilisez 'S'inscrire'. Assurez-vous aussi que la méthode 'Email/Mot de passe' est activée dans votre console Firebase.");
+      } else if (err.code === 'auth/invalid-email') {
+        setError("L'adresse email n'est pas valide.");
+      } else if (err.code === 'auth/user-disabled') {
+        setError("Ce compte a été désactivé. Veuillez contacter le support.");
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError("La connexion par email n'est pas activée. Veuillez contacter l'administrateur.");
       } else if (err.code === 'auth/email-already-in-use') {
         setError("Cet email est déjà utilisé.");
       } else if (err.code === 'auth/weak-password') {
         setError("Le mot de passe doit contenir au moins 6 caractères.");
+      } else if (err.code === 'auth/too-many-requests') {
+        setError("Trop de tentatives infructueuses. Veuillez réessayer plus tard.");
       } else {
-        setError("Une erreur est survenue. Veuillez réessayer.");
+        setError("Une erreur est survenue. Veuillez vérifier vos informations.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError("Veuillez entrer votre email pour réinitialiser votre mot de passe.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await sendPasswordResetEmail(auth, trimmedEmail);
+      setResetSent(true);
+      setTimeout(() => setResetSent(false), 5000);
+    } catch (err: any) {
+      console.error("Reset error:", err);
+      if (err.code === 'auth/user-not-found') {
+        setError("Aucun compte n'est associé à cet email.");
+      } else {
+        setError("Erreur lors de l'envoi de l'email de réinitialisation.");
       }
     } finally {
       setLoading(false);
@@ -109,7 +145,18 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             </div>
 
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-1.5">Mot de passe</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-bold text-gray-700">Mot de passe</label>
+                {isLogin && (
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                  >
+                    Oublié ?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
@@ -124,6 +171,17 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
             </div>
 
             <AnimatePresence>
+              {resetSent && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="flex items-center gap-2 text-emerald-600 text-sm font-bold bg-emerald-50 p-3 rounded-xl"
+                >
+                  <KeyRound className="w-4 h-4 flex-shrink-0" />
+                  <span>Email de réinitialisation envoyé !</span>
+                </motion.div>
+              )}
               {error && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}

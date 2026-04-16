@@ -28,7 +28,24 @@ export function timeAgo(date: Date | undefined): string {
   if (diffInMinutes < 60) return `Il y a ${diffInMinutes}m`;
   const diffInHours = Math.floor(diffInMinutes / 60);
   if (diffInHours < 24) return `Il y a ${diffInHours}h`;
-  const diffInDays = Math.floor(diffInHours / 24);
-  if (diffInDays < 7) return `Il y a ${diffInDays}j`;
+  const diffInHoursFromDays = Math.floor(diffInHours / 24);
+  if (diffInHoursFromDays < 7) return `Il y a ${diffInHoursFromDays}j`;
   return date.toLocaleDateString('fr-FR');
+}
+
+export function safeDispatchEvent(name: string, detail?: any) {
+  try {
+    // Try standard constructor first
+    const event = new CustomEvent(name, { detail, bubbles: true, cancelable: true });
+    window.dispatchEvent(event);
+  } catch (e) {
+    // Fallback for environments where new CustomEvent() is an "Illegal constructor"
+    try {
+      const event = document.createEvent('CustomEvent');
+      event.initCustomEvent(name, true, true, detail);
+      window.dispatchEvent(event);
+    } catch (err) {
+      console.error(`Failed to dispatch event ${name}:`, err);
+    }
+  }
 }

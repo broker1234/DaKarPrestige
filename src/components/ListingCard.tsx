@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, Home, MessageCircle, Heart, Eye, Video, Rocket, ShieldCheck, Clock, Zap, Star, CheckCircle2, Share2, Award, Search, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence, useInView } from 'motion/react';
+import { MapPin, Home, MessageCircle, Heart, Eye, Video, Rocket, ShieldCheck, Clock, Zap, Star, CheckCircle2, Share2, Award, Search, Sparkles, Calendar } from 'lucide-react';
 import { Listing, UserProfile } from '../types';
-import { getWhatsAppLink } from '../lib/utils';
+import { getWhatsAppLink, safeDispatchEvent } from '../lib/utils';
 import { useCurrency } from '../lib/currency';
 import { db } from '../firebase';
 import { doc, updateDoc, increment } from 'firebase/firestore';
@@ -15,22 +15,40 @@ interface ListingCardProps {
   onClick?: (listing: Listing) => void;
   onTransfer?: (listing: Listing) => void;
   userProfile?: UserProfile | null;
+  scheduledBoost?: any;
 }
 
-export default function ListingCard({ listing, isFavorite, onToggleFavorite, onClick, onTransfer, userProfile }: ListingCardProps) {
+export default function ListingCard({ listing, isFavorite, onToggleFavorite, onClick, onTransfer, userProfile, scheduledBoost }: ListingCardProps) {
   const { formatPrice } = useCurrency();
   const [isHovered, setIsHovered] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(cardRef, { amount: 0.3 });
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (videoRef.current) {
+      if (isInView) {
+        videoRef.current.play().catch(() => {
+          // Fallback if autoplay is blocked
+        });
+      } else {
+        videoRef.current.pause();
+      }
+    }
+  }, [isInView]);
+
   const isNew = isMounted && listing.createdAt && (new Date().getTime() - (listing.createdAt.toDate ? listing.createdAt.toDate().getTime() : new Date(listing.createdAt).getTime())) < 7 * 24 * 60 * 60 * 1000;
+
+  const hasVideo = listing.videos && listing.videos.length > 0;
 
   return (
     <motion.div
+      ref={cardRef}
       layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -42,7 +60,7 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
       {/* Media Section */}
       <div className="relative aspect-[4/5] overflow-hidden">
         <AnimatePresence mode="wait">
-          {isHovered && listing.videos && listing.videos.length > 0 ? (
+          {hasVideo ? (
             <motion.div
               key="video"
               initial={{ opacity: 0 }}
@@ -53,7 +71,6 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
               <video
                 ref={videoRef}
                 src={listing.videos[0]}
-                autoPlay
                 muted
                 loop
                 playsInline
@@ -126,6 +143,18 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
               Exclusivité
             </div>
           )}
+          {listing.allowCollaboration && (
+            <div className="bg-brand-600 px-3 py-1.5 rounded-xl text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-brand-600/20">
+              <Zap className="w-3 h-3 fill-white" />
+              Collaboration Active
+            </div>
+          )}
+          {scheduledBoost && (
+            <div className="bg-blue-500 px-3 py-1.5 rounded-xl text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-blue-500/20">
+              <Calendar className="w-3 h-3" />
+              Boost programmé ({scheduledBoost.startDate})
+            </div>
+          )}
         </div>
 
         {/* Favorite Button */}
@@ -155,10 +184,10 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
                 <span className="text-slate-300 text-xs font-bold uppercase tracking-widest">/ mois</span>
               </div>
             </div>
-            {listing.commissionAideCourtier > 0 && (
+            {listing.commissionAideCourtier && listing.commissionAideCourtier > 0 && (
               <div className="bg-brand-500 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg shadow-brand-500/20">
                 <Zap className="w-3 h-3 fill-white" />
-                +{formatPrice(listing.commissionAideCourtier)}
+                Gagnez {formatPrice(listing.commissionAideCourtier)}
               </div>
             )}
           </div>
@@ -211,9 +240,7 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
             <div 
               onClick={(e) => {
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent('navigate', { 
-                  detail: { view: 'public-profile', brokerId: listing.courtierId } 
-                }));
+                safeDispatchEvent('navigate', { view: 'public-profile', brokerId: listing.courtierId });
               }}
               className="w-8 h-8 bg-brand-100 rounded-lg flex items-center justify-center text-brand-600 font-black text-xs cursor-pointer hover:bg-brand-200 transition-colors overflow-hidden"
             >
@@ -226,9 +253,7 @@ export default function ListingCard({ listing, isFavorite, onToggleFavorite, onC
             <div 
               onClick={(e) => {
                 e.stopPropagation();
-                window.dispatchEvent(new CustomEvent('navigate', { 
-                  detail: { view: 'public-profile', brokerId: listing.courtierId } 
-                }));
+                safeDispatchEvent('navigate', { view: 'public-profile', brokerId: listing.courtierId });
               }}
               className="cursor-pointer group/broker"
             >

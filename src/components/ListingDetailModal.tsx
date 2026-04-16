@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, MapPin, Home, MessageCircle, Phone, Share2, Heart, Trash2, Info, Sparkles, CheckCircle2, GraduationCap, Users, Send, ShieldCheck, Clock, Star, User, Zap, Facebook, Copy, Check, Edit2, Rocket } from 'lucide-react';
 import { Listing, ColocationMessage, Review, UserProfile } from '../types';
-import { getWhatsAppLink } from '../lib/utils';
+import { getWhatsAppLink, safeDispatchEvent } from '../lib/utils';
 import { closeListing } from '../lib/notifications';
 import MediaSlider from './MediaSlider';
 import FinancialBreakdown from './FinancialBreakdown';
@@ -313,6 +313,25 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                   <FinancialBreakdown rent={listing.price} />
                 </div>
 
+                {/* Collaboration Opportunity Block */}
+                {listing.allowCollaboration && (
+                  <div className="mb-12 p-8 rounded-[3rem] bg-gradient-to-br from-brand-600 to-brand-800 text-white shadow-2xl shadow-brand-600/20 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl group-hover:scale-150 transition-transform duration-700" />
+                    <div className="relative z-10">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="bg-white/20 p-2 rounded-xl backdrop-blur-md">
+                          <Rocket className="w-5 h-5 text-white" />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-brand-100">Opportunité Aide-Courtier</span>
+                      </div>
+                      <h3 className="text-2xl font-black mb-2">Gagnez <span className="text-brand-300">{formatPrice(listing.commissionAideCourtier || 0)}</span></h3>
+                      <p className="text-brand-100 text-sm font-medium leading-relaxed">
+                        Trouvez un client pour ce bien et recevez votre commission dès la signature du contrat.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Agent Section */}
                 <div className="mb-12 p-8 rounded-[3rem] bg-slate-900 text-white relative overflow-hidden group">
                   <div className="absolute -top-24 -right-24 w-64 h-64 bg-brand-500/20 rounded-full blur-3xl group-hover:bg-brand-500/30 transition-colors" />
@@ -320,9 +339,7 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                   <div className="relative z-10 flex flex-col sm:flex-row items-center gap-8">
                     <div 
                       onClick={() => {
-                        window.dispatchEvent(new CustomEvent('navigate', { 
-                          detail: { view: 'public-profile', brokerId: listing.courtierId } 
-                        }));
+                        safeDispatchEvent('navigate', { view: 'public-profile', brokerId: listing.courtierId });
                         onClose();
                       }}
                       className="w-24 h-24 rounded-[2rem] bg-white/10 p-1 border border-white/20 relative cursor-pointer group/avatar overflow-hidden"
@@ -341,9 +358,7 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                     
                     <div 
                       onClick={() => {
-                        window.dispatchEvent(new CustomEvent('navigate', { 
-                          detail: { view: 'public-profile', brokerId: listing.courtierId } 
-                        }));
+                        safeDispatchEvent('navigate', { view: 'public-profile', brokerId: listing.courtierId });
                         onClose();
                       }}
                       className="flex-1 text-center sm:text-left cursor-pointer group/agent"
@@ -630,39 +645,35 @@ export default function ListingDetailModal({ listing, isOpen, onClose, isFavorit
                 </div>
 
                 <div className="flex flex-col gap-4 pt-12 border-t border-slate-100 pb-24 md:pb-0">
-                  {userProfile?.role === 'aide_courtier' && (
-                    <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-[3rem] p-8 border border-amber-100 shadow-sm">
+                  {userProfile?.role === 'aide_courtier' && listing.allowCollaboration && (
+                    <div className="bg-gradient-to-br from-slate-900 to-slate-950 rounded-[3rem] p-8 border border-white/10 shadow-2xl mb-8">
                       <div className="flex items-center justify-between mb-8">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-2xl bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
+                          <div className="w-10 h-10 rounded-2xl bg-brand-600 flex items-center justify-center text-white shadow-lg shadow-brand-600/20">
                             <Rocket className="w-5 h-5" />
                           </div>
                           <div>
-                            <h4 className="font-black text-amber-900 text-sm uppercase tracking-[0.2em]">Partager & Gagner</h4>
-                            <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Programme Affiliation</p>
+                            <h4 className="font-black text-white text-sm uppercase tracking-[0.2em]">Générer mon lien d'affilié</h4>
+                            <p className="text-[10px] font-black text-brand-400 uppercase tracking-widest">Partagez sur WhatsApp</p>
                           </div>
-                        </div>
-                        <div className="bg-white px-4 py-2 rounded-2xl border border-amber-200 shadow-sm">
-                          <span className="text-xs font-black text-amber-900">{formatPrice(listing.commissionAideCourtier || 0)}</span>
-                          <span className="text-[9px] font-black text-amber-400 uppercase ml-1">/ Vente</span>
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-3 gap-4">
-                        {[
-                          { icon: MessageCircle, label: 'WhatsApp', color: 'text-emerald-500', onClick: shareOnWhatsApp },
-                          { icon: Facebook, label: 'Facebook', color: 'text-blue-600', onClick: shareOnFacebook },
-                          { icon: showShareSuccess ? Check : Copy, label: showShareSuccess ? 'Copié !' : 'Lien', color: 'text-slate-600', onClick: handleShare }
-                        ].map((btn, i) => (
-                          <button
-                            key={i}
-                            onClick={btn.onClick}
-                            className="flex flex-col items-center gap-3 p-5 bg-white rounded-[2rem] border border-amber-100 hover:border-amber-300 hover:shadow-xl hover:-translate-y-1 transition-all group"
-                          >
-                            <btn.icon className={`w-6 h-6 ${btn.color} group-hover:scale-110 transition-transform`} />
-                            <span className="text-[10px] font-black text-amber-900 uppercase tracking-widest">{btn.label}</span>
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button
+                          onClick={shareOnWhatsApp}
+                          className="flex items-center justify-center gap-3 p-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-500/20 active:scale-95"
+                        >
+                          <MessageCircle className="w-5 h-5 fill-current" />
+                          Partager sur WhatsApp
+                        </button>
+                        <button
+                          onClick={handleShare}
+                          className="flex items-center justify-center gap-3 p-5 bg-white/10 hover:bg-white/20 text-white rounded-2xl font-black text-xs uppercase tracking-widest transition-all border border-white/10 active:scale-95"
+                        >
+                          {showShareSuccess ? <Check className="w-5 h-5 text-emerald-400" /> : <Copy className="w-5 h-5" />}
+                          {showShareSuccess ? 'Copié !' : 'Copier le lien'}
+                        </button>
                       </div>
                     </div>
                   )}

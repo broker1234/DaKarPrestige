@@ -4,7 +4,7 @@ import { MapPin, Home, DollarSign, MessageCircle, Clock, User, Search, Lock } fr
 import { db, auth } from '../firebase';
 import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { HousingRequest } from '../types';
-import { formatPrice, timeAgo } from '../lib/utils';
+import { formatPrice, timeAgo, safeDispatchEvent } from '../lib/utils';
 import { useAuthState } from 'react-firebase-hooks/auth';
 
 export default function HousingRequestsSection() {
@@ -59,7 +59,7 @@ export default function HousingRequestsSection() {
           Vous devez être connecté pour consulter les demandes de logement des clients.
         </p>
         <button
-          onClick={() => window.dispatchEvent(new CustomEvent('open-auth'))}
+          onClick={() => safeDispatchEvent('open-auth')}
           className="bg-brand-600 text-white px-8 py-4 rounded-2xl font-black shadow-xl shadow-brand-600/20 hover:bg-brand-700 transition-all"
         >
           Se connecter maintenant

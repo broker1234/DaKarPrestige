@@ -3,11 +3,13 @@ import { auth, db } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuthState } from 'react-firebase-hooks/auth';
-import { LogIn, LogOut, Plus, User, ShieldCheck, Globe, MapPin, ChevronRight, Zap, Bell, CheckCircle2, Search, Menu, X, HelpCircle } from 'lucide-react';
+import { LogIn, LogOut, Plus, User, ShieldCheck, Globe, MapPin, ChevronRight, Zap, Bell, CheckCircle2, Search, Menu, X, HelpCircle, Rocket } from 'lucide-react';
 import { UserProfile, UserRole, COUNTRIES, Notification } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import AuthModal from './AuthModal';
+import BannerPromo from './BannerPromo';
 import { useCurrency, Currency } from '../lib/currency';
+import { safeDispatchEvent } from '../lib/utils';
 
 interface NavbarProps {
   onAddListing: () => void;
@@ -16,13 +18,15 @@ interface NavbarProps {
   onAdminClick: () => void;
   onServicesClick: () => void;
   onRequestsClick: () => void;
+  onMissionsClick: () => void;
   onAuthClick: () => void;
   userProfile: UserProfile | null;
   notifications: Notification[];
   isAdmin?: boolean;
+  adminAlertsCount?: number;
 }
 
-export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAdminClick, onServicesClick, onRequestsClick, onAuthClick, userProfile, notifications, isAdmin }: NavbarProps) {
+export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAdminClick, onServicesClick, onRequestsClick, onMissionsClick, onAuthClick, userProfile, notifications, isAdmin, adminAlertsCount = 0 }: NavbarProps) {
   const [user] = useAuthState(auth);
   const { currency, setCurrency } = useCurrency();
   const [showCurrencyMenu, setShowCurrencyMenu] = useState(false);
@@ -40,14 +44,15 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
   };
 
   const handleInscriptionClick = () => {
-    const event = new CustomEvent('navigate', { detail: { view: 'inscription' } });
-    window.dispatchEvent(event);
+    safeDispatchEvent('navigate', { view: 'inscription' });
     setIsMobileMenuOpen(false);
   };
 
   return (
-    <nav className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-xl z-[100] border-b border-slate-200/50">
-      <div className="max-w-[1600px] mx-auto px-4 md:px-8 h-20 flex items-center justify-between">
+    <div className="fixed top-0 left-0 w-full z-[100]">
+      <BannerPromo userProfile={userProfile} />
+      <nav className="w-full bg-white/80 backdrop-blur-xl border-b border-slate-200/50">
+        <div className="max-w-[1600px] mx-auto px-4 md:px-8 h-20 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer group" onClick={onHomeClick}>
           <div className="bg-brand-600 p-2 rounded-2xl text-white shadow-lg shadow-brand-600/20 group-hover:scale-110 transition-transform">
             <ShieldCheck className="w-6 h-6" />
@@ -58,13 +63,15 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
         {/* Desktop Menu */}
         <div className="hidden lg:flex items-center gap-6">
           <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-2xl border border-slate-200/50">
-            <button
-              onClick={onServicesClick}
-              className="flex items-center gap-2 text-slate-600 hover:text-brand-600 px-5 py-2.5 rounded-xl font-bold transition-all text-xs uppercase tracking-widest"
-            >
-              <Zap className="w-4 h-4" />
-              Services
-            </button>
+            {(userProfile?.role === 'courtier' || userProfile?.role === 'aide_courtier') && (
+              <button
+                onClick={onServicesClick}
+                className="flex items-center gap-2 text-slate-600 hover:text-brand-600 px-5 py-2.5 rounded-xl font-bold transition-all text-xs uppercase tracking-widest"
+              >
+                <Zap className="w-4 h-4" />
+                Services
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -77,6 +84,14 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
             >
               <HelpCircle className="w-4 h-4" />
               FAQ
+            </button>
+
+            <button
+              onClick={onMissionsClick}
+              className="flex items-center gap-2 text-slate-600 hover:text-brand-600 px-5 py-2.5 rounded-xl font-bold transition-all text-xs uppercase tracking-widest"
+            >
+              <Rocket className="w-4 h-4" />
+              Missions
             </button>
 
             <button
@@ -134,10 +149,13 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
               {isAdmin && (
                 <button
                   onClick={onAdminClick}
-                  className="flex items-center gap-2 bg-slate-900 hover:bg-black text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-slate-900/10"
+                  className="flex items-center gap-2 bg-slate-900 hover:bg-black text-white px-5 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-slate-900/10 relative"
                 >
                   <ShieldCheck className="w-4 h-4" />
                   Admin
+                  {adminAlertsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white animate-pulse" />
+                  )}
                 </button>
               )}
               {(userProfile?.role === 'courtier' || userProfile?.role === 'aide_courtier') && (
@@ -316,13 +334,15 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
               </div>
 
               <div className="space-y-4 flex-1">
-                <button
-                  onClick={() => { onServicesClick(); setIsMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-100 shadow-sm text-slate-900 font-bold hover:bg-brand-50 hover:text-brand-600 transition-all"
-                >
-                  <Zap className="w-5 h-5" />
-                  Services Pro
-                </button>
+                {(userProfile?.role === 'courtier' || userProfile?.role === 'aide_courtier') && (
+                  <button
+                    onClick={() => { onServicesClick(); setIsMobileMenuOpen(false); }}
+                    className="w-full flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-100 shadow-sm text-slate-900 font-bold hover:bg-brand-50 hover:text-brand-600 transition-all"
+                  >
+                    <Zap className="w-5 h-5" />
+                    Services Pro
+                  </button>
+                )}
                 <button
                   onClick={() => { 
                     onHomeClick(); 
@@ -335,6 +355,13 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
                 >
                   <HelpCircle className="w-5 h-5" />
                   FAQ
+                </button>
+                <button
+                  onClick={() => { onMissionsClick(); setIsMobileMenuOpen(false); }}
+                  className="w-full flex items-center gap-4 p-5 rounded-2xl bg-white border border-slate-100 shadow-sm text-slate-900 font-bold hover:bg-brand-50 hover:text-brand-600 transition-all"
+                >
+                  <Rocket className="w-5 h-5" />
+                  Missions Urgentes
                 </button>
                 <button
                   onClick={() => { onRequestsClick(); setIsMobileMenuOpen(false); }}
@@ -367,10 +394,13 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
                     {isAdmin && (
                       <button
                         onClick={() => { onAdminClick(); setIsMobileMenuOpen(false); }}
-                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-slate-900 text-white font-bold"
+                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-slate-900 text-white font-bold relative"
                       >
                         <ShieldCheck className="w-5 h-5" />
                         Administration
+                        {adminAlertsCount > 0 && (
+                          <span className="absolute top-4 right-4 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+                        )}
                       </button>
                     )}
                   </>
@@ -423,6 +453,7 @@ export default function Navbar({ onAddListing, onProfileClick, onHomeClick, onAd
           </>
         )}
       </AnimatePresence>
-    </nav>
+      </nav>
+    </div>
   );
 }

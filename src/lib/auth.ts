@@ -32,8 +32,12 @@ export const registerWithEmail = async (email: string, pass: string) => {
       user: result.user,
       isNewUser: true
     };
-  } catch (error) {
-    console.error("Registration error:", error);
+  } catch (error: any) {
+    console.error("Registration error details:", {
+      code: error.code,
+      message: error.message,
+      email: email
+    });
     throw error;
   }
 };
@@ -46,8 +50,12 @@ export const loginWithEmail = async (email: string, pass: string) => {
       user: result.user,
       isNewUser: !userDoc.exists()
     };
-  } catch (error) {
-    console.error("Login error:", error);
+  } catch (error: any) {
+    console.error("Login error details:", {
+      code: error.code,
+      message: error.message,
+      email: email
+    });
     throw error;
   }
 };

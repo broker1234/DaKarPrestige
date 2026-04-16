@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Upload, MapPin, Home, Phone, DollarSign, Video, GraduationCap, Sparkles, Zap, ArrowRight, Rocket } from 'lucide-react';
-import { NEIGHBORHOODS, PROPERTY_TYPES, PROXIMITY_ZONES, Neighborhood, PropertyType, StayType } from '../types';
+import { X, Upload, MapPin, Home, Phone, DollarSign, Video, GraduationCap, Sparkles, Zap, ArrowRight, Rocket, AlertTriangle } from 'lucide-react';
+import { NEIGHBORHOODS, PROPERTY_TYPES, PROXIMITY_ZONES, Neighborhood, PropertyType, StayType, UserProfile } from '../types';
 import { db, auth } from '../firebase';
-import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc, serverTimestamp, onSnapshot, writeBatch, increment, arrayUnion } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
+import { safeDispatchEvent } from '../lib/utils';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { Listing } from '../types';
 
@@ -17,6 +18,7 @@ interface AddListingModalProps {
 
 export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddListingModalProps) {
   const [user] = useAuthState(auth);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -32,6 +34,7 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
     whatsapp: '',
     visitFee: '',
     proximity: [] as string[],
+    allowCollaboration: false,
     commissionAideCourtier: '',
     images: [] as string[],
     videos: [] as string[],
@@ -39,7 +42,25 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
 
   const [formData, setFormData] = useState(initialFormData);
   const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<React.ReactNode | null>(null);
+
+  const canUploadVideo = true;
+
+  // Fetch user profile for identity check
+  React.useEffect(() => {
+    if (user && isOpen) {
+      const unsubscribe = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+        if (doc.exists()) {
+          setUserProfile(doc.data() as UserProfile);
+        }
+      }, (error) => {
+        handleFirestoreError(auth, error, OperationType.GET, `users/${user.uid}`);
+      });
+      return () => unsubscribe();
+    }
+  }, [user, isOpen]);
+
+  const isIdentityComplete = !!(userProfile?.nom && userProfile?.prenom);
 
   // Initialize form when editing
   React.useEffect(() => {
@@ -56,6 +77,7 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
         whatsapp: listingToEdit.whatsapp,
         visitFee: listingToEdit.visitFee?.toString() || '',
         proximity: listingToEdit.proximity || [],
+        allowCollaboration: listingToEdit.allowCollaboration || false,
         commissionAideCourtier: listingToEdit.commissionAideCourtier?.toString() || '',
         images: listingToEdit.images || [],
         videos: listingToEdit.videos || [],
@@ -69,7 +91,7 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
 
   const compressImage = (base64Str: string, maxWidth = 600, maxHeight = 600, quality = 0.5): Promise<string> => {
     return new Promise((resolve) => {
-      const img = new Image();
+      const img = document.createElement('img');
       img.src = base64Str;
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -142,15 +164,20 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
     if (!file) return;
 
     setError(null);
+    if (!canUploadVideo) {
+      setError("Veuillez débloquer l'option vidéo pour continuer.");
+      return;
+    }
+
     // Validate format
     if (!file.type.startsWith('video/')) {
       setError("Format non supporté. Veuillez sélectionner une vidéo (MP4, etc.).");
       return;
     }
 
-    // New limit: 10MB for Cloudinary
-    if (file.size > 10 * 1024 * 1024) {
-      setError("La vidéo est trop lourde (max 10MB).");
+    // New limit: 20MB as requested
+    if (file.size > 20 * 1024 * 1024) {
+      setError("La vidéo est trop lourde (max 20MB).");
       return;
     }
 
@@ -193,6 +220,10 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isIdentityComplete) {
+      setError("Veuillez compléter votre profil (Nom et Prénom) avant de publier.");
+      return;
+    }
     if (step < 3) {
       nextStep();
       return;
@@ -212,6 +243,7 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
         courtierName: user.displayName || 'Courtier',
         courtierPhoto: user.photoURL || '',
         updatedAt: serverTimestamp(),
+        hasVideoAccess: canUploadVideo, // This ensures it's saved with the correct access
       };
 
       if (listingToEdit) {
@@ -322,7 +354,7 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
 
                 {/* Video */}
                 <div className="space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Vidéo (Optionnel)</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Vidéo</span>
                   <div className="aspect-video relative rounded-xl overflow-hidden border-2 border-dashed border-slate-200 group">
                     {formData.videos.length > 0 ? (
                       <>
@@ -343,9 +375,12 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
                       </label>
                     )}
                   </div>
+                  <p className="text-[9px] text-slate-400 font-medium italic">Max 20 Mo • Format MP4 recommandé</p>
                 </div>
               </div>
             </div>
+
+            {/* Video Purchase Modal Removed */}
           </motion.div>
         );
       case 2:
@@ -480,7 +515,49 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div className="space-y-0.5">
+                      <label className="text-xs font-black uppercase tracking-widest text-slate-900">Collaboration</label>
+                      <p className="text-[10px] text-slate-500 font-medium">Autoriser les aide-courtiers ?</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, allowCollaboration: !formData.allowCollaboration })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                        formData.allowCollaboration ? 'bg-brand-600' : 'bg-slate-200'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          formData.allowCollaboration ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {formData.allowCollaboration && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-1">
+                      Commission Proposée <Zap className="w-3 h-3 text-brand-500" />
+                    </label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        type="number"
+                        placeholder="Ex: 5000"
+                        className="w-full pl-10 pr-4 py-4 rounded-2xl bg-brand-50 border border-brand-100 focus:border-brand-500 outline-none font-bold transition-all text-brand-900"
+                        value={formData.commissionAideCourtier}
+                        onChange={e => setFormData({ ...formData, commissionAideCourtier: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-black uppercase tracking-widest text-slate-500">WhatsApp</label>
                   <input
@@ -500,18 +577,6 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
                     className="w-full px-5 py-4 rounded-2xl bg-slate-50 border border-slate-100 focus:border-brand-500 outline-none font-bold transition-all"
                     value={formData.visitFee}
                     onChange={e => setFormData({ ...formData, visitFee: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black uppercase tracking-widest text-slate-500 flex items-center gap-1">
-                    Commission <Zap className="w-3 h-3 text-brand-500" />
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="5000"
-                    className="w-full px-5 py-4 rounded-2xl bg-brand-50 border border-brand-100 focus:border-brand-500 outline-none font-bold transition-all text-brand-900"
-                    value={formData.commissionAideCourtier}
-                    onChange={e => setFormData({ ...formData, commissionAideCourtier: e.target.value })}
                   />
                 </div>
               </div>
@@ -559,8 +624,8 @@ export default function AddListingModal({ isOpen, onClose, listingToEdit }: AddL
             </div>
 
             {error && (
-              <div className="mx-8 mt-4 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-bold flex items-center gap-2">
-                <X className="w-4 h-4" />
+              <div className="mx-8 mt-4 p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-xs font-bold flex items-center gap-3">
+                <AlertTriangle className="w-5 h-5 shrink-0" />
                 {error}
               </div>
             )}

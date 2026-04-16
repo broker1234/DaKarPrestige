@@ -37,10 +37,11 @@ export default function RegistrationPage({ onSuccess, onBack }: RegistrationPage
 
     try {
       let user = auth.currentUser;
+      const trimmedEmail = formData.email.trim();
 
       if (!user) {
         // 1. Create user in Firebase Auth if not already logged in
-        const userCredential = await createUserWithEmailAndPassword(auth, formData.email, formData.password);
+        const userCredential = await createUserWithEmailAndPassword(auth, trimmedEmail, formData.password);
         user = userCredential.user;
 
         // 2. Update profile with display name
@@ -57,7 +58,7 @@ export default function RegistrationPage({ onSuccess, onBack }: RegistrationPage
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         displayName: formData.fullName || user.displayName || 'Utilisateur',
-        email: user.email || formData.email,
+        email: user.email || trimmedEmail,
         phone: formData.whatsapp,
         role: isSystemAdmin ? 'admin' : role,
         createdAt: serverTimestamp(),
@@ -68,7 +69,17 @@ export default function RegistrationPage({ onSuccess, onBack }: RegistrationPage
       onSuccess();
     } catch (err: any) {
       console.error("Registration error:", err);
-      setError(err.message || "Une erreur est survenue lors de l'inscription.");
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/operation-not-allowed') {
+        setError("L'inscription par email a échoué. \n\nNote: Assurez-vous que la méthode 'Email/Mot de passe' est bien activée dans votre console Firebase (Authentification > Sign-in method).");
+      } else if (err.code === 'auth/email-already-in-use') {
+        setError("Cet email est déjà utilisé par un autre compte. Essayez de vous connecter.");
+      } else if (err.code === 'auth/weak-password') {
+        setError("Le mot de passe est trop faible (6 caractères minimum).");
+      } else if (err.code === 'auth/invalid-email') {
+        setError("L'adresse email n'est pas valide.");
+      } else {
+        setError(err.message || "Une erreur est survenue lors de l'inscription.");
+      }
     } finally {
       setLoading(false);
     }
@@ -193,7 +204,7 @@ export default function RegistrationPage({ onSuccess, onBack }: RegistrationPage
                       required
                       value={formData.whatsapp}
                       onChange={(e) => setFormData({...formData, whatsapp: e.target.value})}
-                      placeholder="Ex: +221 77 000 00 00"
+                      placeholder="Ex: +221 78 578 34 43"
                       className="w-full bg-gray-50 border border-gray-100 rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold text-gray-700"
                     />
                   </div>

@@ -13,6 +13,8 @@
         "phone": { "type": "string" },
         "country": { "type": "string" },
         "affiliateClicks": { "type": "number" },
+        "balance": { "type": "number", "description": "User's virtual wallet balance in FCFA" },
+        "transactions": { "type": "array", "items": { "$ref": "Transaction" }, "description": "History of wallet transactions" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "role"]
@@ -93,6 +95,54 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["listingId", "listingTitle", "affiliateId", "affiliateName", "courtierId", "courtierName", "createdAt"]
+    },
+    "RechargeRequest": {
+      "title": "RechargeRequest",
+      "description": "User request to recharge their virtual wallet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "amount": { "type": "number" },
+        "tarifChoisi": { "type": "number" },
+        "captureUrl": { "type": "string", "description": "Cloudinary URL of the payment receipt" },
+        "status": { "type": "string", "enum": ["en_attente", "valide", "rejete"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "tarifChoisi", "captureUrl", "status", "createdAt"]
+    },
+    "WithdrawalRequest": {
+      "title": "WithdrawalRequest",
+      "description": "User request to withdraw funds from their wallet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string", "enum": ["Wave", "Orange Money"] },
+        "phoneNumber": { "type": "string", "description": "Phone number for the withdrawal (Wave/Orange Money)" },
+        "status": { "type": "string", "enum": ["en_attente", "valide", "rejete"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "method", "status", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "A financial transaction in the user's wallet.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["commission", "withdrawal", "purchase", "deposit"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "amount", "description", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -119,6 +169,32 @@
     "/lead_transfers/{transferId}": {
       "schema": "LeadTransfer",
       "description": "Lead transfers from affiliates to brokers"
+    },
+    "/recharge_requests/{requestId}": {
+      "schema": "RechargeRequest",
+      "description": "Wallet recharge requests"
+    },
+    "/withdrawal_requests/{requestId}": {
+      "schema": "WithdrawalRequest",
+      "description": "Wallet withdrawal requests"
+    },
+    "/boost_requests/{requestId}": {
+      "schema": {
+        "title": "BoostRequest",
+        "type": "object",
+        "properties": {
+          "listingId": { "type": "string" },
+          "listingTitle": { "type": "string" },
+          "courtierId": { "type": "string" },
+          "courtierName": { "type": "string" },
+          "amount": { "type": "number" },
+          "duration": { "type": "number" },
+          "status": { "type": "string", "enum": ["en_attente", "valide", "rejete"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["listingId", "courtierId", "amount", "duration", "status"]
+      },
+      "description": "Requests for boosting listings"
     }
   }
 }

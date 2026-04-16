@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ReactNode } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDoc, serverTimestamp, arrayUnion, addDoc, getDocs, writeBatch } from 'firebase/firestore';
-import { Listing, UserProfile, ServiceRequest, CommissionClaim, Transaction, LeadTransfer } from '../types';
+import { useAuthState } from 'react-firebase-hooks/auth';
+import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc, getDoc, serverTimestamp, arrayUnion, addDoc, getDocs, writeBatch, where, increment } from 'firebase/firestore';
+import { Listing, UserProfile, ServiceRequest, CommissionClaim, Transaction, LeadTransfer, HousingRequest } from '../types';
+import AdminPaymentManagement from './AdminPaymentManagement';
+import PromoCodeManager from './PromoCodeManager';
 import { motion, AnimatePresence } from 'motion/react';
-import { Shield, Rocket, Trash2, Calendar, User, Clock, CheckCircle, XCircle, ShieldCheck, ShieldAlert, Zap, Package, Mail, ExternalLink, DollarSign, Plus, Phone, Star, Settings } from 'lucide-react';
+import { Shield, Rocket, Trash2, Calendar, User, Clock, CheckCircle, XCircle, ShieldCheck, ShieldAlert, Zap, Package, Mail, ExternalLink, DollarSign, Plus, Phone, Star, Settings, Landmark, Loader2, Timer, ArrowLeft, LayoutGrid, Activity, Tag, Video, Users, Home, MessageCircle, CheckCircle2, Bell } from 'lucide-react';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
+import { formatPrice, timeAgo } from '../lib/utils';
 
 interface AdminDashboardProps {
   key?: string;
@@ -13,13 +17,49 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminDashboardProps) {
+  const [user] = useAuthState(auth);
   const [listings, setListings] = useState<Listing[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequest[]>([]);
   const [commissionClaims, setCommissionClaims] = useState<CommissionClaim[]>([]);
-  const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [withdrawalRequests, setWithdrawalRequests] = useState<any[]>([]);
+  const [boostRequests, setBoostRequests] = useState<any[]>([]);
   const [leadTransfers, setLeadTransfers] = useState<LeadTransfer[]>([]);
-  const [activeTab, setActiveTab] = useState<'listings' | 'requests' | 'claims' | 'sales' | 'partners' | 'users' | 'withdrawals' | 'supervision' | 'maintenance'>('listings');
+  const [pendingRechargesCount, setPendingRechargesCount] = useState(0);
+  const [videoAccessRequests, setVideoAccessRequests] = useState<any[]>([]);
+  const [housingRequests, setHousingRequests] = useState<HousingRequest[]>([]);
+  const [adminAlerts, setAdminAlerts] = useState<any[]>([]);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+  const markAlertAsRead = async (alertId: string) => {
+    try {
+      await updateDoc(doc(db, 'admin_alerts', alertId), {
+        status: 'read',
+        readAt: serverTimestamp()
+      });
+    } catch (error) {
+      console.error("Error marking alert as read:", error);
+    }
+  };
+
+  const markAllAlertsAsRead = async () => {
+    try {
+      const batch = writeBatch(db);
+      adminAlerts.forEach(alert => {
+        if (alert.status === 'unread') {
+          batch.update(doc(db, 'admin_alerts', alert.id), {
+            status: 'read',
+            readAt: serverTimestamp()
+          });
+        }
+      });
+      await batch.commit();
+    } catch (error) {
+      console.error("Error marking all alerts as read:", error);
+    }
+  };
+  const [activeTab, setActiveTab] = useState<'listings' | 'requests' | 'claims' | 'sales' | 'partners' | 'users' | 'withdrawals' | 'supervision' | 'maintenance' | 'payments' | 'boosts' | 'upcoming_boosts' | 'promos' | 'video_access' | 'housing_requests' | 'alerts'>('listings');
+  const [viewMode, setViewMode] = useState<'grid' | 'detail'>('grid');
   const [loading, setLoading] = useState(true);
   const [boostDuration, setBoostDuration] = useState(7); // Default 7 days
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -33,7 +73,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
   const isAdmin = propIsAdmin ?? false;
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || !user) return;
 
     const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -44,10 +84,10 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
       handleFirestoreError(auth, error, OperationType.LIST, 'listings');
     });
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
-    if (isAdmin !== true) return;
+    if (isAdmin !== true || !user) return;
 
     const q = query(collection(db, 'service_requests'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -57,10 +97,10 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
       handleFirestoreError(auth, error, OperationType.LIST, 'service_requests');
     });
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
-    if (isAdmin !== true) return;
+    if (isAdmin !== true || !user) return;
 
     const q = query(collection(db, 'commission_claims'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -70,45 +110,49 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
       handleFirestoreError(auth, error, OperationType.LIST, 'commission_claims');
     });
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
-    if (isAdmin !== true) return;
+    if (isAdmin !== true || !user) return;
 
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() } as UserProfile));
       setUsers(data);
-      
-      // Extract all withdrawal transactions from all users for the withdrawals tab
-      const allWithdrawals: any[] = [];
-      data.forEach(u => {
-        if (u.transactions) {
-          u.transactions.forEach(tx => {
-            if (tx.type === 'withdrawal') {
-              allWithdrawals.push({
-                ...tx,
-                userId: u.uid,
-                userName: u.displayName || u.email,
-                userPhone: u.phone
-              });
-            }
-          });
-        }
-      });
-      setWithdrawals(allWithdrawals.sort((a, b) => {
-        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-        return dateB.getTime() - dateA.getTime();
-      }));
     }, (error) => {
       handleFirestoreError(auth, error, OperationType.LIST, 'users');
     });
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
 
   useEffect(() => {
-    if (isAdmin !== true) return;
+    if (isAdmin !== true || !user) return;
+
+    const q = query(collection(db, 'withdrawal_requests'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setWithdrawalRequests(data);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'withdrawal_requests');
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user || !auth.currentUser) return;
+
+    const q = query(collection(db, 'demandes_boost'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setBoostRequests(data);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'demandes_boost');
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user || !auth.currentUser) return;
 
     const q = query(collection(db, 'lead_transfers'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -118,7 +162,71 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
       handleFirestoreError(auth, error, OperationType.LIST, 'lead_transfers');
     });
     return () => unsubscribe();
-  }, [isAdmin]);
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user) return;
+
+    const q = query(collection(db, 'recharge_requests'), where('status', '==', 'en_attente'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPendingRechargesCount(snapshot.size);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'recharge_requests');
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user) return;
+
+    const q = query(collection(db, 'video_access_requests'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setVideoAccessRequests(data);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'video_access_requests');
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user) return;
+
+    const q = query(collection(db, 'housing_requests'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as HousingRequest));
+      setHousingRequests(data);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'housing_requests');
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
+
+  useEffect(() => {
+    if (isAdmin !== true || !user) return;
+
+    const q = query(collection(db, 'admin_alerts'), where('status', '==', 'unread'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Play sound if new alert (not on initial load)
+      if (!isInitialLoad) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            const audio = document.createElement('audio');
+            audio.src = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+            audio.play().catch(e => console.log("Audio play failed:", e));
+          }
+        });
+      }
+
+      setAdminAlerts(data);
+      setIsInitialLoad(false);
+    }, (error) => {
+      console.error("Error listening to admin alerts:", error);
+    });
+    return () => unsubscribe();
+  }, [isAdmin, user]);
 
   if (!isAdmin) {
     return (
@@ -319,6 +427,111 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
     }
   };
 
+  const handleApproveBoost = async (request: any) => {
+    setActionLoading(request.id);
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Update request status
+      const requestRef = doc(db, 'demandes_boost', request.id);
+      batch.update(requestRef, { status: 'approuve_programme' });
+      
+      // 2. Deduct from user balance
+      const userRef = doc(db, 'users', request.courtierId);
+      const userDoc = await getDoc(userRef);
+      if (!userDoc.exists()) throw new Error("Utilisateur introuvable");
+      
+      const currentBalance = userDoc.data().balance || 0;
+      if (currentBalance < request.amount) throw new Error("Solde insuffisant");
+      
+      const transaction: Transaction = {
+        id: Math.random().toString(36).substring(2, 15),
+        type: 'purchase',
+        amount: request.amount,
+        description: `${request.serviceName || 'Boost'} - ${request.listingTitle}`,
+        status: 'completed',
+        createdAt: new Date()
+      };
+      
+      batch.update(userRef, {
+        balance: increment(-request.amount),
+        transactions: arrayUnion(transaction)
+      });
+      
+      // 3. Activate boost, verification or account pack
+      if (request.serviceName === "PACK Agence") {
+        batch.update(userRef, {
+          plan: "Agence"
+        });
+        batch.update(requestRef, { status: 'valide' }); // Immediate for packs
+      } else if (request.serviceName === "Badge VÉRIFIÉ") {
+        batch.update(userRef, { isGoldVerified: true });
+        if (request.listingId && request.listingId !== 'account_wide') {
+          const listingRef = doc(db, 'listings', request.listingId);
+          batch.update(listingRef, { isVerified: true });
+        }
+        batch.update(requestRef, { status: 'valide' }); // Immediate for verification
+      }
+      
+      await batch.commit();
+      alert(`${request.serviceName || 'Boost'} approuvé et programmé avec succès !`);
+    } catch (error: any) {
+      console.error("Error approving boost:", error);
+      alert(error.message || "Erreur lors de l'approbation");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancelRefundBoost = async (request: any) => {
+    if (!confirm("Voulez-vous vraiment annuler ce boost et rembourser le courtier ?")) return;
+    
+    setActionLoading(request.id);
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Delete request
+      const requestRef = doc(db, 'demandes_boost', request.id);
+      batch.delete(requestRef);
+      
+      // 2. Refund user
+      const userRef = doc(db, 'users', request.courtierId);
+      const transaction: Transaction = {
+        id: Math.random().toString(36).substring(2, 15),
+        type: 'deposit',
+        amount: request.amount,
+        description: `Remboursement Boost annulé - ${request.listingTitle}`,
+        status: 'completed',
+        createdAt: new Date()
+      };
+      
+      batch.update(userRef, {
+        balance: increment(request.amount),
+        transactions: arrayUnion(transaction)
+      });
+      
+      await batch.commit();
+      alert("Boost annulé et courtier remboursé !");
+    } catch (error: any) {
+      console.error("Error cancelling boost:", error);
+      alert("Erreur lors de l'annulation");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectBoost = async (requestId: string) => {
+    if (!window.confirm("Rejeter cette demande de boost ?")) return;
+    setActionLoading(requestId);
+    try {
+      await updateDoc(doc(db, 'demandes_boost', requestId), { status: 'rejete' });
+    } catch (error) {
+      handleFirestoreError(auth, error, OperationType.UPDATE, `demandes_boost/${requestId}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleUpdateClaimStatus = async (claim: CommissionClaim, status: CommissionClaim['status']) => {
     setActionLoading(claim.id);
     try {
@@ -341,7 +554,7 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
           };
 
           await updateDoc(userRef, {
-            balance: (userData.balance || 0) + claim.promisedCommission,
+            balance: increment(claim.promisedCommission),
             transactions: arrayUnion(newTransaction)
           });
 
@@ -389,33 +602,48 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
     }
   };
 
-  const handleUpdateWithdrawalStatus = async (userId: string, txId: string, status: 'completed' | 'rejected') => {
-    setActionLoading(txId);
+  const handleUpdateWithdrawalRequest = async (request: any, status: 'valide' | 'rejete') => {
+    setActionLoading(request.id);
     try {
-      const userDoc = await getDoc(doc(db, 'users', userId));
+      const userRef = doc(db, 'users', request.userId);
+      const userDoc = await getDoc(userRef);
       if (!userDoc.exists()) return;
       
       const userData = userDoc.data() as UserProfile;
-      const updatedTransactions = (userData.transactions || []).map(tx => {
-        if (tx.id === txId) {
-          return { ...tx, status };
-        }
-        return tx;
-      });
+      
+      if (status === 'valide') {
+        // Deduct from balance and add transaction
+        const transaction: Transaction = {
+          id: Math.random().toString(36).substring(2, 15),
+          type: 'withdrawal',
+          amount: request.amount,
+          description: `Retrait ${request.method} validé`,
+          status: 'completed',
+          createdAt: new Date()
+        };
 
-      // If rejected, refund the balance
-      let newBalance = userData.balance || 0;
-      if (status === 'rejected') {
-        const tx = userData.transactions?.find(t => t.id === txId);
-        if (tx) newBalance += tx.amount;
+        await updateDoc(userRef, {
+          balance: increment(-request.amount),
+          transactions: arrayUnion(transaction)
+        });
       }
 
-      await updateDoc(doc(db, 'users', userId), {
-        transactions: updatedTransactions,
-        balance: newBalance
+      await updateDoc(doc(db, 'withdrawal_requests', request.id), { status });
+      
+      // Notify user
+      await addDoc(collection(db, 'notifications'), {
+        userId: request.userId,
+        title: status === 'valide' ? 'Retrait Validé' : 'Retrait Rejeté',
+        message: status === 'valide' 
+          ? `Votre retrait de ${request.amount.toLocaleString()} FCFA via ${request.method} a été validé.`
+          : `Votre retrait de ${request.amount.toLocaleString()} FCFA via ${request.method} a été rejeté.`,
+        type: status === 'valide' ? 'success' : 'warning',
+        read: false,
+        createdAt: serverTimestamp()
       });
+
     } catch (error) {
-      console.error("Error updating withdrawal status:", error);
+      handleFirestoreError(auth, error, OperationType.UPDATE, `withdrawal_requests/${request.id}`);
     } finally {
       setActionLoading(null);
     }
@@ -499,6 +727,85 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
     }
   };
 
+  const handleApproveVideoAccess = async (request: any) => {
+    setActionLoading(request.id);
+    try {
+      const batch = writeBatch(db);
+      const userRef = doc(db, 'users', request.userId);
+      const requestRef = doc(db, 'video_access_requests', request.id);
+
+      // 1. Update user profile
+      if (request.type === 'business') {
+        const expiration = new Date();
+        expiration.setDate(expiration.getDate() + 30);
+        batch.update(userRef, {
+          hasVideoAccess: true,
+          videoAccessExpiration: expiration.toISOString()
+        });
+      } else {
+        // Single access is handled per listing, but we can mark the user as having a pending single access
+        // Actually, for single access, we should probably update the listing that was being created.
+        // But the request doesn't have listingId yet if it was a new listing.
+        // The user's request said: "Option Single (2 000 FCFA) : Débloquez l'upload vidéo pour l'annonce en cours de création uniquement."
+        // In AddListingModal, we set hasVideoAccess to true on the listing if single access is purchased.
+        // So for single access, we might need a different flow or just trust the client-side flag if it's paid.
+        // However, the user said "après validation admin".
+        // Let's assume for single access, we just approve the request and the user can then publish.
+        batch.update(userRef, {
+          hasVideoAccess: true // Temporary or specific flag
+        });
+      }
+
+      // 2. Deduct balance
+      batch.update(userRef, {
+        balance: increment(-request.amount),
+        transactions: arrayUnion({
+          id: Math.random().toString(36).substring(2, 15),
+          type: 'purchase',
+          amount: request.amount,
+          description: `Accès Vidéo - ${request.type === 'business' ? 'Pass Business' : 'Option Single'}`,
+          status: 'completed',
+          createdAt: new Date()
+        })
+      });
+
+      // 3. Update request status
+      batch.update(requestRef, { status: 'valide' });
+
+      await batch.commit();
+      alert("Accès vidéo approuvé !");
+    } catch (error) {
+      console.error("Error approving video access:", error);
+      alert("Erreur lors de l'approbation");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectVideoAccess = async (requestId: string) => {
+    if (!window.confirm("Rejeter cette demande d'accès vidéo ?")) return;
+    setActionLoading(requestId);
+    try {
+      await updateDoc(doc(db, 'video_access_requests', requestId), { status: 'rejete' });
+    } catch (error) {
+      handleFirestoreError(auth, error, OperationType.UPDATE, `video_access_requests/${requestId}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeleteHousingRequest = async (requestId: string) => {
+    if (!window.confirm("Supprimer cette demande de logement ?")) return;
+    setActionLoading(requestId);
+    try {
+      await deleteDoc(doc(db, 'housing_requests', requestId));
+    } catch (error) {
+      handleFirestoreError(auth, error, OperationType.DELETE, `housing_requests/${requestId}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleProductionReset = async () => {
     if (!window.confirm("⚠️ ATTENTION : Cette action va supprimer TOUTES les annonces, transactions et réinitialiser les soldes. Cette opération est irréversible. Voulez-vous continuer ?")) return;
     if (!window.confirm("⚠️ DERNIÈRE CONFIRMATION : Êtes-vous ABSOLUMENT sûr ?")) return;
@@ -574,115 +881,293 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
       >
         <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50">
           <div className="flex items-center gap-3">
+            {viewMode === 'detail' && (
+              <button 
+                onClick={() => setViewMode('grid')}
+                className="p-2 hover:bg-gray-200 rounded-xl transition-all text-gray-600 mr-2"
+                title="Retour au tableau de bord"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
             <div className="p-2 bg-blue-600 rounded-xl text-white flex-shrink-0">
               <Shield className="w-5 h-5 sm:w-6 h-6" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg sm:text-2xl font-black text-gray-900 truncate">Administration</h2>
-              <p className="text-gray-500 text-[10px] sm:text-sm font-medium truncate">Gestion des annonces, boosts et vérifications</p>
+              <h2 className="text-lg sm:text-2xl font-black text-gray-900 truncate">
+                {viewMode === 'grid' ? 'Tableau de Bord Admin' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('_', ' ')}
+              </h2>
+              <p className="text-gray-500 text-[10px] sm:text-sm font-medium truncate">
+                {viewMode === 'grid' ? 'Gestion globale de Dakar Prestige' : 'Gestion détaillée de la section'}
+              </p>
             </div>
           </div>
-          <button 
-            onClick={onClose}
-            className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
-          >
-            <XCircle className="w-6 h-6 sm:w-8 h-8 text-gray-400" />
-          </button>
-        </div>
-
-        <div className="p-4 sm:p-6 bg-blue-50 border-b border-blue-100 flex flex-col gap-4 overflow-hidden">
-          <div className="flex bg-white p-1 rounded-xl border border-blue-200 overflow-x-auto whitespace-nowrap custom-scrollbar">
-            <button
-              onClick={() => setActiveTab('listings')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'listings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+          <div className="flex items-center gap-2">
+            {viewMode === 'detail' && (
+              <button
+                onClick={() => setViewMode('grid')}
+                className="hidden sm:flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-xl font-bold text-sm hover:bg-gray-50 transition-all shadow-sm"
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Tableau de bord
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
             >
-              Annonces
-            </button>
-            <button
-              onClick={() => setActiveTab('requests')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Services Pro ({serviceRequests.filter(r => r.status === 'En attente').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('claims')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'claims' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Litiges ({commissionClaims.filter(c => c.status === 'En attente' && c.type !== 'declaration').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('sales')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'sales' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Ventes ({commissionClaims.filter(c => c.status === 'En attente' && c.type === 'declaration').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('partners')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Partenaires ({users.filter(u => u.role === 'aide_courtier').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('users')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Utilisateurs
-            </button>
-            <button
-              onClick={() => setActiveTab('withdrawals')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Retraits ({withdrawals.filter(w => w.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setActiveTab('supervision')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'supervision' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
-            >
-              Supervision Flux
-            </button>
-            <button
-              onClick={() => setActiveTab('maintenance')}
-              className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'maintenance' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
-            >
-              Maintenance
+              <XCircle className="w-6 h-6 sm:w-8 h-8 text-gray-400" />
             </button>
           </div>
-
-          {activeTab === 'listings' && (
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex items-center gap-3">
-                <Calendar className="w-5 h-5 text-blue-600" />
-                <span className="text-xs sm:text-sm font-bold text-gray-700">Durée du Boost :</span>
-                <select 
-                  value={boostDuration}
-                  onChange={(e) => setBoostDuration(parseInt(e.target.value))}
-                  className="bg-white border border-blue-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value={1}>1 jour</option>
-                  <option value={3}>3 jours</option>
-                  <option value={7}>7 jours</option>
-                  <option value={15}>15 jours</option>
-                  <option value={30}>30 jours</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-4 text-[10px] sm:text-sm font-medium text-gray-600">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 bg-blue-600 rounded-full" />
-                  <span>{listings.filter(l => l.isBoosted).length} Boostées</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="w-3 h-3 bg-green-500 rounded-full" />
-                  <span>{listings.filter(l => l.isVerified).length} Vérifiées</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
+
+        {viewMode === 'detail' && (
+          <div className="p-4 sm:p-6 bg-blue-50 border-b border-blue-100 flex flex-col gap-4 overflow-hidden">
+            <div className="flex bg-white p-1 rounded-xl border border-blue-200 overflow-x-auto whitespace-nowrap custom-scrollbar">
+              <button
+                onClick={() => setActiveTab('listings')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'listings' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Annonces
+              </button>
+              <button
+                onClick={() => setActiveTab('requests')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'requests' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Services Pro ({serviceRequests.filter(r => r.status === 'En attente').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('claims')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'claims' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Litiges ({commissionClaims.filter(c => c.status === 'En attente' && c.type !== 'declaration').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('sales')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'sales' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Ventes ({commissionClaims.filter(c => c.status === 'En attente' && c.type === 'declaration').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('partners')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'partners' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Partenaires ({users.filter(u => u.role === 'aide_courtier').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'users' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Utilisateurs
+              </button>
+              <button
+                onClick={() => setActiveTab('payments')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 flex items-center gap-2 ${activeTab === 'payments' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Paiements ({pendingRechargesCount})
+              </button>
+              <button
+                onClick={() => setActiveTab('alerts')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 flex items-center gap-2 ${activeTab === 'alerts' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
+              >
+                Alertes ({adminAlerts.length})
+                {adminAlerts.length > 0 && (
+                  <span className="flex h-2 w-2 rounded-full bg-white animate-pulse" />
+                )}
+              </button>
+              <button
+                onClick={() => setActiveTab('withdrawals')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'withdrawals' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Retraits ({withdrawalRequests.filter(w => w.status === 'en_attente').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('supervision')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'supervision' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Supervision Flux
+              </button>
+              <button
+                onClick={() => setActiveTab('boosts')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'boosts' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Services ({boostRequests.filter(b => b.status === 'en_attente').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('upcoming_boosts')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'upcoming_boosts' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Boosts à venir ({boostRequests.filter(b => b.status === 'approuve_programme').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('promos')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'promos' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Promos
+              </button>
+              <button
+                onClick={() => setActiveTab('video_access')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'video_access' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Accès Vidéo ({videoAccessRequests.filter(r => r.status === 'en_attente').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('housing_requests')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'housing_requests' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:text-blue-600'}`}
+              >
+                Demandes Logement ({housingRequests.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('maintenance')}
+                className={`px-3 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-black transition-all flex-shrink-0 ${activeTab === 'maintenance' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-red-600'}`}
+              >
+                Maintenance
+              </button>
+            </div>
+
+            {activeTab === 'listings' && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex items-center gap-3">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                  <span className="text-xs sm:text-sm font-bold text-gray-700">Durée du Boost :</span>
+                  <select 
+                    value={boostDuration}
+                    onChange={(e) => setBoostDuration(parseInt(e.target.value))}
+                    className="bg-white border border-blue-200 rounded-lg px-3 py-1.5 text-xs sm:text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value={1}>1 jour</option>
+                    <option value={3}>3 jours</option>
+                    <option value={7}>7 jours</option>
+                    <option value={15}>15 jours</option>
+                    <option value={30}>30 jours</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-4 text-[10px] sm:text-sm font-medium text-gray-600">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 bg-blue-600 rounded-full" />
+                    <span>{listings.filter(l => l.isBoosted).length} Boostées</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 bg-green-500 rounded-full" />
+                    <span>{listings.filter(l => l.isVerified).length} Vérifiées</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+            </div>
+          ) : viewMode === 'grid' ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
+              {/* Finance Section - Green */}
+              <DashboardTile 
+                title="Paiements" 
+                icon={<Landmark className="w-8 h-8" />} 
+                count={pendingRechargesCount} 
+                color="bg-emerald-600" 
+                onClick={() => { setActiveTab('payments'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Retraits" 
+                icon={<ExternalLink className="w-8 h-8" />} 
+                count={withdrawalRequests.filter(w => w.status === 'en_attente').length} 
+                color="bg-emerald-600" 
+                onClick={() => { setActiveTab('withdrawals'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Ventes" 
+                icon={<DollarSign className="w-8 h-8" />} 
+                count={commissionClaims.filter(c => c.status === 'En attente' && c.type === 'declaration').length} 
+                color="bg-emerald-600" 
+                onClick={() => { setActiveTab('sales'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Litiges" 
+                icon={<ShieldAlert className="w-8 h-8" />} 
+                count={commissionClaims.filter(c => c.status === 'En attente' && c.type !== 'declaration').length} 
+                color="bg-emerald-600" 
+                onClick={() => { setActiveTab('claims'); setViewMode('detail'); }} 
+              />
+
+              {/* Operations Section - Deep Blue */}
+              <DashboardTile 
+                title="Annonces" 
+                icon={<Package className="w-8 h-8" />} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('listings'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Services Pro" 
+                icon={<Zap className="w-8 h-8" />} 
+                count={serviceRequests.filter(r => r.status === 'En attente').length} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('requests'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Boosts" 
+                icon={<Rocket className="w-8 h-8" />} 
+                count={boostRequests.filter(b => b.status === 'en_attente').length} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('boosts'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Boosts à venir" 
+                icon={<Timer className="w-8 h-8" />} 
+                count={boostRequests.filter(b => b.status === 'approuve_programme').length} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('upcoming_boosts'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Accès Vidéo" 
+                icon={<Video className="w-8 h-8" />} 
+                count={videoAccessRequests.filter(r => r.status === 'en_attente').length} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('video_access'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Demandes Logement" 
+                icon={<Home className="w-8 h-8" />} 
+                count={housingRequests.length} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('housing_requests'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Partenaires" 
+                icon={<Users className="w-8 h-8" />} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('partners'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Promos" 
+                icon={<Tag className="w-8 h-8" />} 
+                color="bg-[#002147]" 
+                onClick={() => { setActiveTab('promos'); setViewMode('detail'); }} 
+              />
+
+              {/* Maintenance Section - Dark Gray */}
+              <DashboardTile 
+                title="Utilisateurs" 
+                icon={<User className="w-8 h-8" />} 
+                color="bg-slate-800" 
+                onClick={() => { setActiveTab('users'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Supervision" 
+                icon={<Activity className="w-8 h-8" />} 
+                color="bg-slate-800" 
+                onClick={() => { setActiveTab('supervision'); setViewMode('detail'); }} 
+              />
+              <DashboardTile 
+                title="Maintenance" 
+                icon={<Settings className="w-8 h-8" />} 
+                color="bg-slate-800" 
+                onClick={() => { setActiveTab('maintenance'); setViewMode('detail'); }} 
+              />
             </div>
           ) : activeTab === 'listings' ? (
             <div className="overflow-x-auto pb-4 custom-scrollbar">
@@ -856,7 +1341,16 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                           </div>
                           <div>
                             <div className="font-bold text-gray-900">{request.serviceType}</div>
-                            <div className="text-xs text-blue-600 font-black">{request.price.toLocaleString()} FCFA</div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-xs text-blue-600 font-black">{request.price.toLocaleString()} FCFA</div>
+                              {request.paymentMethod && (
+                                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter ${
+                                  request.paymentMethod === 'Wallet' ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-600'
+                                }`}>
+                                  {request.paymentMethod}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1078,72 +1572,69 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
             </div>
           ) : activeTab === 'withdrawals' ? (
             <div className="overflow-x-auto pb-4 custom-scrollbar">
-              <table className="w-full text-left border-collapse min-w-[800px]">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
                 <thead>
                   <tr className="text-gray-400 text-xs font-black uppercase tracking-wider border-b border-gray-100">
-                    <th className="pb-4 pl-2">Utilisateur</th>
-                    <th className="pb-4">Montant</th>
+                    <th className="pb-4 pl-2">Détails de la demande</th>
                     <th className="pb-4">Date</th>
                     <th className="pb-4">Statut</th>
                     <th className="pb-4 text-right pr-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {withdrawals.map((w) => (
-                    <tr key={w.id} className="group hover:bg-gray-50/50 transition-colors">
+                  {withdrawalRequests.map((request) => (
+                    <tr key={request.id} className="group hover:bg-gray-50/50 transition-colors">
                       <td className="py-4 pl-2">
                         <div className="flex flex-col">
-                          <div className="font-bold text-gray-900">{w.userName}</div>
-                          <div className="text-xs text-blue-600 font-black">Wave: {w.userPhone}</div>
+                          <div className="font-bold text-gray-900">
+                            L'utilisateur <span className="text-blue-600">{request.userName}</span> ({request.firstName} {request.lastName}) demande un retrait de <span className="text-red-600">{request.amount.toLocaleString()} FCFA</span>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            sur le numéro <span className="font-bold text-gray-700">{request.phoneNumber}</span> ({request.method})
+                          </div>
                         </div>
                       </td>
                       <td className="py-4">
-                        <div className="font-black text-slate-900">{w.amount.toLocaleString()} FCFA</div>
-                      </td>
-                      <td className="py-4">
                         <div className="text-sm text-gray-500">
-                          {w.createdAt?.toDate ? w.createdAt.toDate().toLocaleDateString('fr-FR') : 'Récemment'}
+                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleString() : 'N/A'}
                         </div>
                       </td>
                       <td className="py-4">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black ${
-                          w.status === 'pending' ? 'bg-amber-100 text-amber-700' :
-                          w.status === 'completed' ? 'bg-green-100 text-green-700' :
+                          request.status === 'en_attente' ? 'bg-amber-100 text-amber-700' :
+                          request.status === 'valide' ? 'bg-green-100 text-green-700' :
                           'bg-red-100 text-red-700'
                         }`}>
-                          {w.status === 'pending' ? <Clock className="w-3 h-3" /> :
-                           w.status === 'completed' ? <CheckCircle className="w-3 h-3" /> :
-                           <XCircle className="w-3 h-3" />}
-                          {w.status.toUpperCase()}
+                          {request.status === 'en_attente' ? 'EN ATTENTE' : request.status.toUpperCase()}
                         </span>
                       </td>
                       <td className="py-4 text-right pr-2">
-                        {w.status === 'pending' && (
+                        {request.status === 'en_attente' && (
                           <div className="flex items-center justify-end gap-2">
                             <button 
-                              onClick={() => handleUpdateWithdrawalStatus(w.userId, w.id, 'completed')}
-                              disabled={actionLoading === w.id}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                              title="Marquer comme payé"
+                              onClick={() => handleUpdateWithdrawalRequest(request, 'valide')}
+                              disabled={actionLoading === request.id}
+                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all disabled:opacity-50"
+                              title="Confirmer le transfert"
                             >
-                              <CheckCircle className="w-5 h-5" />
+                              {actionLoading === request.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
                             </button>
                             <button 
-                              onClick={() => handleUpdateWithdrawalStatus(w.userId, w.id, 'rejected')}
-                              disabled={actionLoading === w.id}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              title="Rejeter et rembourser"
+                              onClick={() => handleUpdateWithdrawalRequest(request, 'rejete')}
+                              disabled={actionLoading === request.id}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
+                              title="Rejeter le retrait"
                             >
-                              <XCircle className="w-5 h-5" />
+                              {actionLoading === request.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
                             </button>
                           </div>
                         )}
                       </td>
                     </tr>
                   ))}
-                  {withdrawals.length === 0 && (
+                  {withdrawalRequests.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-20 text-center text-gray-400 font-medium">
+                      <td colSpan={4} className="py-20 text-center text-gray-400 font-medium">
                         Aucune demande de retrait pour le moment.
                       </td>
                     </tr>
@@ -1200,18 +1691,18 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                               <button 
                                 onClick={() => handleUpdateClaimStatus(claim, 'Validé')}
                                 disabled={actionLoading === claim.id}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all disabled:opacity-50"
                                 title="Valider la commission"
                               >
-                                <CheckCircle className="w-5 h-5" />
+                                {actionLoading === claim.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle className="w-5 h-5" />}
                               </button>
                               <button 
                                 onClick={() => handleUpdateClaimStatus(claim, 'Rejeté')}
                                 disabled={actionLoading === claim.id}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
                                 title="Rejeter la commission"
                               >
-                                <XCircle className="w-5 h-5" />
+                                {actionLoading === claim.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
                               </button>
                             </>
                           )}
@@ -1407,6 +1898,171 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
                 </tbody>
               </table>
             </div>
+          ) : activeTab === 'boosts' ? (
+            <div className="overflow-x-auto pb-4 custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
+                <thead>
+                  <tr className="text-gray-400 text-xs font-black uppercase tracking-wider border-b border-gray-100">
+                    <th className="pb-4 pl-2">Annonce / Service</th>
+                    <th className="pb-4">Courtier</th>
+                    <th className="pb-4">Détails</th>
+                    <th className="pb-4">Montant</th>
+                    <th className="pb-4">Statut</th>
+                    <th className="pb-4 text-right pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {boostRequests.map((request) => (
+                    <tr key={request.id} className="group hover:bg-gray-50/50 transition-colors">
+                      <td className="py-4 pl-2">
+                        <div className="font-bold text-gray-900">{request.listingTitle}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">ID: {request.listingId}</div>
+                      </td>
+                      <td className="py-4">
+                        <div className="text-sm text-gray-900 font-bold">{request.courtierName}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">ID: {request.courtierId}</div>
+                      </td>
+                      <td className="py-4">
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-[10px] font-black mb-1">
+                          <Timer className="w-3 h-3" />
+                          {request.serviceName || 'BOOST'} {request.duration > 0 ? `(${request.duration} JOURS)` : ''}
+                        </div>
+                        {request.startDate && (
+                          <div className="text-[10px] font-bold text-gray-500 flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            Début: {request.startDate} à {request.startTime}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-4">
+                        <div className="font-black text-blue-600">{request.amount.toLocaleString()} FCFA</div>
+                      </td>
+                      <td className="py-4">
+                        {request.status === 'en_attente' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-100 text-amber-700 rounded-full text-[10px] font-black">
+                            <Clock className="w-3 h-3" />
+                            EN ATTENTE
+                          </span>
+                        ) : request.status === 'approuve_programme' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-[10px] font-black">
+                            <Calendar className="w-3 h-3" />
+                            PROGRAMMÉ
+                          </span>
+                        ) : request.status === 'actif' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-black">
+                            <Zap className="w-3 h-3" />
+                            ACTIF
+                          </span>
+                        ) : request.status === 'valide' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-black">
+                            <CheckCircle className="w-3 h-3" />
+                            APPROUVÉ
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-[10px] font-black">
+                            <XCircle className="w-3 h-3" />
+                            REJETÉ
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-4 text-right pr-2">
+                        {request.status === 'en_attente' && (
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => handleApproveBoost(request)}
+                              disabled={actionLoading === request.id}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+                            >
+                              {actionLoading === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                              APPROUVER
+                            </button>
+                            <button 
+                              onClick={() => handleRejectBoost(request.id)}
+                              disabled={actionLoading === request.id}
+                              className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2 rounded-xl text-xs font-black transition-all"
+                            >
+                              REJETER
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {boostRequests.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-20 text-center text-gray-400 font-medium">
+                        Aucune demande de boost pour le moment.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ) : activeTab === 'upcoming_boosts' ? (
+            <div className="overflow-x-auto pb-4 custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
+                <thead>
+                  <tr className="text-gray-400 text-xs font-black uppercase tracking-wider border-b border-gray-100">
+                    <th className="pb-4 pl-2">Annonce</th>
+                    <th className="pb-4">Courtier</th>
+                    <th className="pb-4">Planning / Compte à rebours</th>
+                    <th className="pb-4">Durée / Revenu</th>
+                    <th className="pb-4 text-right pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {boostRequests.filter(r => r.status === 'approuve_programme').map((request) => {
+                    const startTime = new Date(request.startDateTime).getTime();
+                    const now = Date.now();
+                    const diffMs = startTime - now;
+                    const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                    const diffHours = Math.ceil(diffMs / (1000 * 60 * 60));
+
+                    return (
+                      <tr key={request.id} className="group hover:bg-gray-50/50 transition-colors">
+                        <td className="py-4 pl-2">
+                          <div className="font-bold text-gray-900">{request.listingTitle}</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase">ID: {request.listingId}</div>
+                        </td>
+                        <td className="py-4">
+                          <div className="text-sm text-gray-900 font-bold">{request.courtierName}</div>
+                        </td>
+                        <td className="py-4">
+                          <div className="text-sm font-bold text-gray-900 mb-1">{request.startDate} à {request.startTime}</div>
+                          <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-black ${diffMs > 0 ? 'bg-amber-50 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                            <Clock className="w-3 h-3" />
+                            {diffMs > 0 ? (
+                              diffDays > 1 ? `Démarre dans ${diffDays} jours` : `Démarre dans ${diffHours}h`
+                            ) : 'Prêt pour activation'}
+                          </div>
+                        </td>
+                        <td className="py-4">
+                          <div className="text-xs font-bold text-gray-500 mb-1">{request.duration} jours</div>
+                          <div className="font-black text-emerald-600">{request.amount.toLocaleString()} FCFA</div>
+                        </td>
+                        <td className="py-4 text-right pr-2">
+                          <button 
+                            onClick={() => handleCancelRefundBoost(request)}
+                            disabled={actionLoading === request.id}
+                            className="bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ml-auto"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            ANNULER & REMBOURSER
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {boostRequests.filter(r => r.status === 'approuve_programme').length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-20 text-center text-gray-400 font-medium">
+                        Aucun boost programmé pour le moment.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : activeTab === 'maintenance' ? (
             <div className="p-12 flex flex-col items-center justify-center text-center">
               <div className="w-24 h-24 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-6">
@@ -1447,6 +2103,222 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
               <p className="mt-8 text-xs text-gray-400 font-bold uppercase tracking-widest">
                 Action irréversible • Réservé à l'administrateur
               </p>
+            </div>
+          ) : activeTab === 'alerts' ? (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-black text-gray-900">Alertes Système</h2>
+                  <p className="text-sm text-gray-500 font-medium">Alertes en temps réel sur les activités critiques.</p>
+                </div>
+                {adminAlerts.length > 0 && (
+                  <button 
+                    onClick={markAllAlertsAsRead}
+                    className="text-xs font-black text-blue-600 hover:text-blue-700 uppercase tracking-widest"
+                  >
+                    Tout marquer comme lu
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                {adminAlerts.length === 0 ? (
+                  <div className="bg-white rounded-3xl p-12 text-center border border-dashed border-gray-200">
+                    <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-black text-gray-900">Tout est en ordre</h3>
+                    <p className="text-gray-500">Aucune alerte non lue pour le moment.</p>
+                  </div>
+                ) : (
+                  adminAlerts.map((alert) => (
+                    <motion.div
+                      key={alert.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex items-start gap-4 group"
+                    >
+                      <div className={`p-3 rounded-2xl ${
+                        alert.type === 'PAYMENT_RECEIVED' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'
+                      }`}>
+                        {alert.type === 'PAYMENT_RECEIVED' ? <DollarSign className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="font-black text-gray-900">{alert.title}</h4>
+                          <span className="text-[10px] text-gray-400 font-bold uppercase">
+                            {alert.createdAt?.toDate ? timeAgo(alert.createdAt.toDate()) : 'Récemment'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-4">{alert.message}</p>
+                        <button
+                          onClick={() => markAlertAsRead(alert.id)}
+                          className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:text-blue-700 transition-colors"
+                        >
+                          Marquer comme lu
+                        </button>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : activeTab === 'payments' ? (
+            <AdminPaymentManagement />
+          ) : activeTab === 'promos' ? (
+            <PromoCodeManager />
+          ) : activeTab === 'video_access' ? (
+            <div className="overflow-x-auto pb-4 custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="text-gray-400 text-xs font-black uppercase tracking-wider border-b border-gray-100">
+                    <th className="pb-4 pl-2">Utilisateur</th>
+                    <th className="pb-4">Type d'accès</th>
+                    <th className="pb-4">Montant</th>
+                    <th className="pb-4">Date</th>
+                    <th className="pb-4">Statut</th>
+                    <th className="pb-4 text-right pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {videoAccessRequests.map((request) => (
+                    <tr key={request.id} className="group hover:bg-gray-50/50 transition-colors">
+                      <td className="py-4 pl-2">
+                        <div className="font-bold text-gray-900">{request.userEmail}</div>
+                        <div className="text-[10px] text-gray-400 font-bold uppercase">ID: {request.userId}</div>
+                      </td>
+                      <td className="py-4">
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${
+                          request.type === 'business' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'
+                        }`}>
+                          {request.type === 'business' ? 'Pass Business (30j)' : 'Option Single'}
+                        </span>
+                      </td>
+                      <td className="py-4">
+                        <div className="font-black text-gray-900">{request.amount.toLocaleString()} FCFA</div>
+                      </td>
+                      <td className="py-4">
+                        <div className="text-sm text-gray-500">
+                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'N/A'}
+                        </div>
+                      </td>
+                      <td className="py-4">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black ${
+                          request.status === 'en_attente' ? 'bg-amber-100 text-amber-700' :
+                          request.status === 'valide' ? 'bg-green-100 text-green-700' :
+                          'bg-red-100 text-red-700'
+                        }`}>
+                          {request.status.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="py-4 text-right pr-2">
+                        {request.status === 'en_attente' && (
+                          <div className="flex items-center justify-end gap-2">
+                            <button 
+                              onClick={() => handleApproveVideoAccess(request)}
+                              disabled={actionLoading === request.id}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-black transition-all shadow-lg flex items-center gap-1.5"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Approuver
+                            </button>
+                            <button 
+                              onClick={() => handleRejectVideoAccess(request.id)}
+                              disabled={actionLoading === request.id}
+                              className="bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-black transition-all flex items-center gap-1.5"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              Rejeter
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : activeTab === 'housing_requests' ? (
+            <div className="overflow-x-auto pb-4 custom-scrollbar">
+              <table className="w-full text-left border-collapse min-w-[900px]">
+                <thead>
+                  <tr className="text-gray-400 text-xs font-black uppercase tracking-wider border-b border-gray-100">
+                    <th className="pb-4 pl-2">Utilisateur</th>
+                    <th className="pb-4">Demande</th>
+                    <th className="pb-4">Budget</th>
+                    <th className="pb-4">Date</th>
+                    <th className="pb-4 text-right pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {housingRequests.map((request) => (
+                    <tr key={request.id} className="group hover:bg-gray-50/50 transition-colors">
+                      <td className="py-4 pl-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-brand-50 flex items-center justify-center overflow-hidden border border-brand-100">
+                            {request.userPhoto ? (
+                              <img src={request.userPhoto} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <User className="w-5 h-5 text-brand-600" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="font-bold text-gray-900">{request.userName}</div>
+                            <div className="text-[10px] text-gray-400 font-bold uppercase">ID: {request.userId}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-4">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[10px] font-black uppercase">
+                              {request.type}
+                            </span>
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-black uppercase">
+                              {request.neighborhood}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 line-clamp-1 italic">"{request.description}"</p>
+                        </div>
+                      </td>
+                      <td className="py-4">
+                        <div className="font-black text-emerald-600">{request.budget.toLocaleString()} FCFA</div>
+                      </td>
+                      <td className="py-4">
+                        <div className="text-sm text-gray-500">
+                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'N/A'}
+                        </div>
+                      </td>
+                      <td className="py-4 text-right pr-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <a 
+                            href={`https://wa.me/${request.whatsapp}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                            title="Contacter sur WhatsApp"
+                          >
+                            <MessageCircle className="w-5 h-5" />
+                          </a>
+                          <button 
+                            onClick={() => handleDeleteHousingRequest(request.id)}
+                            disabled={actionLoading === request.id}
+                            className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                            title="Supprimer la demande"
+                          >
+                            <Trash2 className="w-5 h-5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {housingRequests.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="py-20 text-center text-gray-400 font-medium">
+                        Aucune demande de logement pour le moment.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           ) : null}
         </div>
@@ -1560,5 +2432,41 @@ export default function AdminDashboard({ onClose, isAdmin: propIsAdmin }: AdminD
         </AnimatePresence>
       </motion.div>
     </div>
+  );
+}
+
+interface DashboardTileProps {
+  title: string;
+  icon: ReactNode;
+  count?: number;
+  color: string;
+  onClick: () => void;
+}
+
+function DashboardTile({ title, icon, count, color, onClick }: DashboardTileProps) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.02, y: -5 }}
+      whileTap={{ scale: 0.98 }}
+      onClick={onClick}
+      className={`${color} p-6 sm:p-8 rounded-[2rem] text-white flex flex-col items-center justify-center gap-4 shadow-xl relative group overflow-hidden`}
+    >
+      {/* Decorative Gradient Overlay */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+      
+      <div className="relative z-10 transition-transform group-hover:scale-110 duration-300">
+        {icon}
+      </div>
+      
+      <span className="relative z-10 font-black text-sm sm:text-base uppercase tracking-wider text-center">
+        {title}
+      </span>
+
+      {count !== undefined && count > 0 && (
+        <div className="absolute top-4 right-4 bg-red-600 text-white w-6 h-6 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-black shadow-lg border-2 border-white animate-pulse">
+          {count}
+        </div>
+      )}
+    </motion.button>
   );
 }

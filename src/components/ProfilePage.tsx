@@ -5,7 +5,7 @@ import { auth, db } from '../firebase';
 import { doc, updateDoc, collection, query, where, onSnapshot, deleteDoc, orderBy, limit, getDocs, writeBatch, arrayUnion, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { UserProfile, Listing, COUNTRIES, ServiceRequest, HousingRequest, Transaction, LeadTransfer } from '../types';
 import { closeListing } from '../lib/notifications';
-import { formatPrice } from '../lib/utils';
+import { formatPrice, safeDispatchEvent } from '../lib/utils';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import ListingCard from './ListingCard';
 import WalletCard from './WalletCard';
@@ -27,11 +27,22 @@ export default function ProfilePage({
   isFavorite, 
   onToggleFavorite 
 }: ProfilePageProps) {
-  const [activeTab, setActiveTab] = useState<'share' | 'earnings' | 'profile' | 'leads'>(
-    userProfile?.role === 'aide_courtier' ? 'share' : 'share'
+  const [activeTab, setActiveTab] = useState<'share' | 'earnings' | 'profile' | 'leads' | 'dashboard' | 'listings'>(
+    userProfile?.role === 'courtier' ? 'dashboard' : 'share'
   );
+
+  useEffect(() => {
+    const handleOpenWallet = () => {
+      setActiveTab('earnings');
+    };
+    window.addEventListener('open-wallet', handleOpenWallet);
+    return () => window.removeEventListener('open-wallet', handleOpenWallet);
+  }, []);
+
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(userProfile?.displayName || '');
+  const [nom, setNom] = useState(userProfile?.nom || '');
+  const [prenom, setPrenom] = useState(userProfile?.prenom || '');
   const [phone, setPhone] = useState(userProfile?.phone || '');
   const [coverImage, setCoverImage] = useState(userProfile?.coverImage || '');
   const [agencyLogo, setAgencyLogo] = useState(userProfile?.agencyLogo || '');
@@ -45,9 +56,12 @@ export default function ProfilePage({
   const [allListings, setAllListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [transfers, setTransfers] = useState<LeadTransfer[]>([]);
+  const [scheduledBoosts, setScheduledBoosts] = useState<any[]>([]);
 
   useEffect(() => {
-    if (!userProfile) return;
+    if (!userProfile || !auth.currentUser) return;
+
+    const unsubscribes: (() => void)[] = [];
 
     // Fetch service requests
     const srQuery = query(
@@ -55,25 +69,33 @@ export default function ProfilePage({
       where('userId', '==', userProfile.uid),
       orderBy('createdAt', 'desc')
     );
-    const unsubscribeSR = onSnapshot(srQuery, (snapshot) => {
+    unsubscribes.push(onSnapshot(srQuery, (snapshot) => {
       setServiceRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as ServiceRequest[]);
     }, (error) => {
       handleFirestoreError(auth, error, OperationType.LIST, 'service_requests');
-    });
+    }));
 
     // Fetch my listings if courtier
     if (userProfile.role === 'courtier') {
       const q = query(collection(db, 'listings'), where('courtierId', '==', userProfile.uid));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribes.push(onSnapshot(q, (snapshot) => {
         setMyListings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Listing[]);
         setLoading(false);
       }, (error) => {
         handleFirestoreError(auth, error, OperationType.LIST, 'listings');
-      });
-      return () => {
-        unsubscribeSR();
-        unsubscribe();
-      };
+      }));
+
+      // Fetch scheduled boosts
+      const boostQ = query(
+        collection(db, 'demandes_boost'), 
+        where('courtierId', '==', userProfile.uid),
+        where('status', '==', 'approuve_programme')
+      );
+      unsubscribes.push(onSnapshot(boostQ, (snapshot) => {
+        setScheduledBoosts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }, (error) => {
+        handleFirestoreError(auth, error, OperationType.LIST, 'demandes_boost');
+      }));
     }
 
     // Fetch favorite listings if user
@@ -81,11 +103,11 @@ export default function ProfilePage({
       // Fetch favorites
       if (userProfile.favorites?.length > 0) {
         const q = query(collection(db, 'listings'), where('__name__', 'in', userProfile.favorites));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        unsubscribes.push(onSnapshot(q, (snapshot) => {
           setFavoriteListings(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Listing[]);
         }, (error) => {
           handleFirestoreError(auth, error, OperationType.LIST, 'listings');
-        });
+        }));
       }
 
       // Fetch my housing requests
@@ -94,21 +116,16 @@ export default function ProfilePage({
         where('userId', '==', userProfile.uid),
         orderBy('createdAt', 'desc')
       );
-      const unsubscribeReq = onSnapshot(reqQuery, (snapshot) => {
+      unsubscribes.push(onSnapshot(reqQuery, (snapshot) => {
         setMyRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as HousingRequest[]);
         setLoading(false);
       }, (error) => {
         handleFirestoreError(auth, error, OperationType.LIST, 'housing_requests');
-      });
-
-      return () => {
-        unsubscribeSR();
-        unsubscribeReq();
-      };
+      }));
     } else if (userProfile.role === 'aide_courtier') {
       // Fetch all listings for Aide-Courtier to browse and share
       const q = query(collection(db, 'listings'), orderBy('createdAt', 'desc'), limit(50));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
+      unsubscribes.push(onSnapshot(q, (snapshot) => {
         let fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Listing[];
         // Filter out blocked listings
         fetched = fetched.filter(l => l.status !== 'Bloqué');
@@ -116,22 +133,39 @@ export default function ProfilePage({
         setLoading(false);
       }, (error) => {
         handleFirestoreError(auth, error, OperationType.LIST, 'listings');
-      });
-      return () => {
-        unsubscribeSR();
-        unsubscribe();
-      };
+      }));
     } else {
       setLoading(false);
-      return () => unsubscribeSR();
     }
+
+    // Fetch lead transfers
+    const transfersQ = query(
+      collection(db, 'lead_transfers'),
+      where(userProfile.role === 'courtier' ? 'courtierId' : 'affiliateId', '==', userProfile.uid),
+      orderBy('createdAt', 'desc')
+    );
+    unsubscribes.push(onSnapshot(transfersQ, (snapshot) => {
+      setTransfers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as LeadTransfer[]);
+    }, (error) => {
+      handleFirestoreError(auth, error, OperationType.LIST, 'lead_transfers');
+    }));
+
+    return () => unsubscribes.forEach(unsub => unsub());
   }, [userProfile]);
 
   const handleUpdateProfile = async () => {
     if (!userProfile) return;
+    
+    if (!nom.trim() || !prenom.trim()) {
+      alert("Le Nom et le Prénom sont obligatoires.");
+      return;
+    }
+
     try {
       await updateDoc(doc(db, 'users', userProfile.uid), {
         displayName: name,
+        nom: nom.trim(),
+        prenom: prenom.trim(),
         phone: phone,
         coverImage: coverImage,
         agencyLogo: agencyLogo,
@@ -232,32 +266,33 @@ export default function ProfilePage({
 
     setIsProcessingBoost(listing.id);
     try {
-      const transactionId = Math.random().toString(36).substring(2, 15);
-      const newTransaction: Transaction = {
-        id: transactionId,
-        type: 'purchase',
-        amount: BOOST_PRICE,
-        description: `Boost Annonce: ${listing.title}`,
-        status: 'completed',
-        createdAt: new Date()
-      };
-
-      const userRef = doc(db, 'users', userProfile.uid);
-      await updateDoc(userRef, {
-        balance: (userProfile.balance || 0) - BOOST_PRICE,
-        transactions: arrayUnion(newTransaction)
+      const response = await fetch('/api/services/purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: userProfile.uid,
+          serviceType: "BOOST Semaine",
+          listingId: listing.id,
+          amount: BOOST_PRICE,
+          duration: 7
+        }),
       });
 
-      const listingRef = doc(db, 'listings', listing.id);
-      await updateDoc(listingRef, {
-        isBoosted: true,
-        boostExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-      });
+      const data = await response.json();
 
-      alert("Annonce boostée avec succès !");
+      if (response.ok) {
+        alert("Annonce boostée avec succès !");
+        // Update local state if needed, but Firestore listener should handle it
+      } else {
+        if (data.error === "Solde insuffisant") {
+          alert("Solde insuffisant. Veuillez recharger votre portefeuille.");
+        } else {
+          alert(`Erreur: ${data.error}`);
+        }
+      }
     } catch (error) {
       console.error("Error boosting listing:", error);
-      alert("Une erreur est survenue.");
+      alert("Une erreur est survenue lors de la connexion au serveur.");
     } finally {
       setIsProcessingBoost(null);
     }
@@ -430,44 +465,71 @@ export default function ProfilePage({
 
   const userCountry = COUNTRIES.find(c => c.name === userProfile.country);
 
-  // Aide-Courtier Specific Layout with Tabs
-  if (userProfile.role === 'aide_courtier') {
+  // Courtier & Aide-Courtier Layout
+  if (userProfile.role === 'courtier' || userProfile.role === 'aide_courtier') {
+    const isCourtier = userProfile.role === 'courtier';
+    
     return (
       <div className="max-w-7xl mx-auto px-4 py-8 pb-24 md:pb-12">
-        {/* Tab Navigation - Fixed on mobile bottom, top on desktop */}
-        <div className="fixed bottom-0 left-0 right-0 z-[100] md:relative md:bottom-auto bg-white/80 backdrop-blur-xl border-t border-gray-100 shadow-[0_-8px_30px_rgb(0,0,0,0.04)] md:border-t-0 md:bg-transparent md:mb-8 px-4 py-4 md:p-0">
-          <div className="max-w-md mx-auto md:max-w-none flex items-center justify-between md:justify-start gap-2 bg-gray-100/50 p-1.5 rounded-[2rem] md:w-fit">
-            <button
-              onClick={() => setActiveTab('share')}
-              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === 'share' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25 scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
-              }`}
-            >
-              <Zap className={`w-4 h-4 ${activeTab === 'share' ? 'animate-pulse' : ''}`} />
-              <span>Partager</span>
-            </button>
+        {/* Tab Navigation */}
+        <div className="fixed bottom-0 left-0 right-0 z-[100] md:relative md:bottom-auto bg-white/90 backdrop-blur-xl border-t border-gray-100 shadow-[0_-8px_30px_rgb(0,0,0,0.04)] md:border-t-0 md:bg-transparent md:mb-8 px-2 py-3 md:p-0 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-1 bg-gray-100/50 p-1 rounded-[1.5rem] md:rounded-[2rem] w-max mx-auto md:w-fit min-w-full md:min-w-0">
+            {isCourtier ? (
+              <>
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === 'dashboard' ? 'bg-[#0a192f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Tableau</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('listings')}
+                  className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === 'listings' ? 'bg-[#0a192f] text-[#d4af37] shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+                  }`}
+                >
+                  <Home className="w-4 h-4" />
+                  <span>Annonces</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setActiveTab('share')}
+                  className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === 'share' ? 'bg-blue-600 text-white shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>Partager</span>
+                </button>
+                <button
+                  onClick={() => setActiveTab('leads')}
+                  className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    activeTab === 'leads' ? 'bg-blue-600 text-white shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Relations</span>
+                </button>
+              </>
+            )}
             <button
               onClick={() => setActiveTab('earnings')}
-              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === 'earnings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25 scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+              className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                activeTab === 'earnings' ? (isCourtier ? 'bg-[#0a192f] text-[#d4af37]' : 'bg-blue-600 text-white') + ' shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
               }`}
             >
               <DollarSign className="w-4 h-4" />
-              <span>Gains</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('leads')}
-              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === 'leads' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25 scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Mises en relation</span>
+              <span>Portefeuille</span>
             </button>
             <button
               onClick={() => setActiveTab('profile')}
-              className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-3.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                activeTab === 'profile' ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/25 scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
+              className={`flex-shrink-0 flex flex-col md:flex-row items-center justify-center gap-1 md:gap-2 px-4 md:px-6 py-2 md:py-3.5 rounded-xl md:rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                activeTab === 'profile' ? (isCourtier ? 'bg-[#0a192f] text-[#d4af37]' : 'bg-blue-600 text-white') + ' shadow-lg scale-[1.02]' : 'text-gray-500 hover:text-blue-600'
               }`}
             >
               <User className="w-4 h-4" />
@@ -477,13 +539,193 @@ export default function ProfilePage({
         </div>
 
         <AnimatePresence mode="wait">
-          {activeTab === 'share' && (
+          {activeTab === 'dashboard' && isCourtier && (
+            <motion.div
+              key="dashboard"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-8">
+                  <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
+                    <div className="flex items-center gap-6 mb-8">
+                      <div className="w-20 h-20 bg-blue-50 rounded-3xl flex items-center justify-center text-blue-600 text-2xl font-black">
+                        {photoURL ? (
+                          <img src={photoURL} alt="" className="w-full h-full object-cover rounded-3xl" />
+                        ) : (
+                          userProfile.displayName?.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <h2 className="text-3xl font-black text-gray-900">{userProfile.displayName}</h2>
+                        <p className="text-gray-500 font-medium">Courtier Vérifié • Dakar Prestige</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Annonces</p>
+                        <p className="text-2xl font-black text-gray-900">{myListings.length}</p>
+                      </div>
+                      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Vues</p>
+                        <p className="text-2xl font-black text-gray-900">
+                          {myListings.reduce((acc, curr) => acc + (curr.views || 0), 0)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Favoris</p>
+                        <p className="text-2xl font-black text-gray-900">
+                          {myListings.reduce((acc, curr) => acc + (curr.favoritesCount || 0), 0)}
+                        </p>
+                      </div>
+                      <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Score</p>
+                        <p className="text-2xl font-black text-blue-600">98%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
+                    <h3 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-3">
+                      <Zap className="w-6 h-6 text-amber-500" />
+                      Services Pro Actifs
+                    </h3>
+                    <div className="space-y-4">
+                      {serviceRequests.length > 0 ? (
+                        serviceRequests.map(req => (
+                          <div key={req.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                            <div className="flex items-center gap-4">
+                              <div className="p-3 bg-white rounded-xl text-blue-600 shadow-sm">
+                                <ShieldCheck className="w-5 h-5" />
+                              </div>
+                              <div>
+                                <p className="font-black text-gray-900 text-sm">{req.serviceType}</p>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase">{req.status}</p>
+                              </div>
+                            </div>
+                            <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-center py-8 text-gray-400 text-sm italic">Aucun service pro actif.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-8">
+                  <div className="bg-[#0a192f] rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/20 border border-[#d4af37]/20 text-white">
+                    <h3 className="text-lg font-black text-[#d4af37] mb-4 uppercase tracking-widest">Plan Actuel</h3>
+                    <div className="flex items-center gap-4 mb-6">
+                      <div className="p-3 bg-white/10 rounded-2xl">
+                        <Package className="w-6 h-6 text-[#d4af37]" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-black">{userProfile.plan || 'Standard'}</p>
+                        <p className="text-xs text-gray-400 font-bold uppercase">
+                          Membre depuis {(() => {
+                            const date: any = userProfile.createdAt;
+                            if (!date) return new Date().getFullYear();
+                            if (typeof date === 'object' && 'toDate' in date) {
+                              return date.toDate().getFullYear();
+                            }
+                            return new Date(date).getFullYear();
+                          })()}
+                        </p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => safeDispatchEvent('navigate', { view: 'services' })}
+                      className="w-full bg-[#d4af37] text-[#0a192f] py-4 rounded-2xl font-black text-sm hover:bg-[#c5a028] transition-all"
+                    >
+                      Changer de Plan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'listings' && isCourtier && (
+            <motion.div
+              key="listings"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
+                <div className="flex items-center justify-between mb-8">
+                  <div>
+                    <h3 className="text-2xl font-black text-gray-900">Mes Annonces</h3>
+                    <p className="text-sm text-gray-500 mt-1">Gérez vos biens immobiliers publiés sur la plateforme.</p>
+                  </div>
+                  <button 
+                    onClick={onAddListing}
+                    className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Publier un bien
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {myListings.length > 0 ? (
+                    myListings.map(listing => (
+                      <div key={listing.id} className="relative group">
+                        <ListingCard 
+                          listing={listing} 
+                          onClick={onViewListing}
+                          isFavorite={isFavorite(listing.id)}
+                          onToggleFavorite={onToggleFavorite}
+                          userProfile={userProfile}
+                          scheduledBoost={scheduledBoosts.find(b => b.listingId === listing.id)}
+                        />
+                        <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); onEditListing(listing); }}
+                            className="bg-blue-500 text-white p-2.5 rounded-full shadow-lg hover:scale-110 transition-all"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setListingToDelete(listing.id); }}
+                            className="bg-red-500 text-white p-2.5 rounded-full shadow-lg hover:scale-110 transition-all"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          {listing.status !== 'Loué' && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); setListingToMarkSold(listing); checkAffiliate(listing.id); }}
+                              className="bg-emerald-500 text-white p-2.5 rounded-full shadow-lg hover:scale-110 transition-all"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState 
+                      icon={<Home className="w-12 h-12 text-gray-300" />}
+                      title="Aucune annonce"
+                      description="Commencez à publier vos biens immobiliers dès maintenant."
+                    />
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'share' && !isCourtier && (
             <motion.div
               key="share"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
               className="space-y-8"
             >
               <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
@@ -501,33 +743,70 @@ export default function ProfilePage({
                   </div>
                 </div>
 
-                {loading ? (
-                  <div className="flex items-center justify-center h-64">
-                    <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {allListings.length > 0 ? (
-                      allListings.map(listing => (
-                        <ListingCard 
-                          key={listing.id} 
-                          listing={listing} 
-                          onClick={onViewListing}
-                          isFavorite={isFavorite(listing.id)}
-                          onToggleFavorite={onToggleFavorite}
-                          onTransfer={handleTransferLead}
-                          userProfile={userProfile}
-                        />
-                      ))
-                    ) : (
-                      <EmptyState 
-                        icon={<Zap className="w-12 h-12 text-gray-300" />}
-                        title="Aucune annonce disponible"
-                        description="Revenez plus tard pour découvrir de nouvelles annonces à partager."
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {allListings.length > 0 ? (
+                    allListings.map(listing => (
+                      <ListingCard 
+                        key={listing.id} 
+                        listing={listing} 
+                        onClick={onViewListing}
+                        isFavorite={isFavorite(listing.id)}
+                        onToggleFavorite={onToggleFavorite}
+                        onTransfer={handleTransferLead}
+                        userProfile={userProfile}
                       />
-                    )}
-                  </div>
-                )}
+                    ))
+                  ) : (
+                    <EmptyState 
+                      icon={<Zap className="w-12 h-12 text-gray-300" />}
+                      title="Aucune annonce disponible"
+                      description="Revenez plus tard pour découvrir de nouvelles annonces."
+                    />
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'leads' && !isCourtier && (
+            <motion.div
+              key="leads"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-8"
+            >
+              <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
+                <h3 className="text-2xl font-black text-gray-900 mb-8">Mises en Relation</h3>
+                <div className="space-y-4">
+                  {transfers.length > 0 ? (
+                    transfers.map(transfer => (
+                      <div key={transfer.id} className="flex items-center justify-between p-6 bg-gray-50 rounded-3xl border border-gray-100">
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
+                            <Rocket className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-black text-gray-900">{transfer.listingTitle}</p>
+                            <p className="text-xs text-gray-500">Courtier: {transfer.courtierName}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-blue-600">{transfer.clientName || 'Client'}</p>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                            {transfer.createdAt?.toDate ? transfer.createdAt.toDate().toLocaleDateString() : 'Récemment'}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <EmptyState 
+                      icon={<Users className="w-12 h-12 text-gray-300" />}
+                      title="Aucun transfert"
+                      description="Vous n'avez pas encore mis de client en relation."
+                    />
+                  )}
+                </div>
               </div>
             </motion.div>
           )}
@@ -538,63 +817,9 @@ export default function ProfilePage({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
               className="max-w-2xl mx-auto"
             >
               <WalletCard userProfile={userProfile} />
-            </motion.div>
-          )}
-
-          {activeTab === 'leads' && (
-            <motion.div
-              key="leads"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-8"
-            >
-              <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
-                <div className="flex items-center justify-between mb-8">
-                  <div>
-                    <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-                      <Users className="w-6 h-6 text-blue-500" />
-                      Historique des Mises en Relation
-                    </h3>
-                    <p className="text-sm text-gray-500 mt-1">Retrouvez ici tous les clients que vous avez transférés aux courtiers.</p>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {transfers.length > 0 ? (
-                    transfers.map((transfer) => (
-                      <div key={transfer.id} className="flex items-center justify-between p-6 bg-gray-50 rounded-3xl border border-gray-100 hover:shadow-md transition-all">
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-blue-600 shadow-sm">
-                            <Rocket className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <p className="font-black text-gray-900">{transfer.listingTitle}</p>
-                            <p className="text-xs text-gray-500">Courtier: <span className="font-bold">{transfer.courtierName}</span></p>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                              {transfer.createdAt?.toDate ? transfer.createdAt.toDate().toLocaleDateString('fr-FR') : 'Récemment'}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black text-blue-600">{transfer.clientName || 'Client anonyme'}</p>
-                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Transféré</p>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-12 bg-gray-50 rounded-[2rem] border border-dashed border-gray-200">
-                      <Users className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                      <p className="text-xs text-gray-400 font-black uppercase tracking-widest">Aucun transfert pour le moment</p>
-                    </div>
-                  )}
-                </div>
-              </div>
             </motion.div>
           )}
 
@@ -604,7 +829,6 @@ export default function ProfilePage({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
               className="max-w-2xl mx-auto"
             >
               <div className="bg-white rounded-[2.5rem] p-8 shadow-xl shadow-blue-900/5 border border-gray-100">
@@ -614,26 +838,52 @@ export default function ProfilePage({
                       {isUploadingPhoto ? (
                         <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
                       ) : photoURL ? (
-                        <img src={photoURL} alt={userProfile.displayName || ''} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <img src={photoURL} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-blue-600 text-3xl font-black bg-blue-50">
-                          {userProfile.displayName?.charAt(0).toUpperCase() || <User className="w-12 h-12" />}
-                        </div>
+                        <User className="w-12 h-12 text-blue-600" />
                       )}
                     </div>
-                    <label className="absolute bottom-4 right-0 bg-blue-600 p-2 rounded-full text-white shadow-lg cursor-pointer hover:bg-blue-700 transition-all border-2 border-white">
+                    <label className="absolute bottom-0 right-0 bg-blue-600 p-2 rounded-full text-white shadow-lg cursor-pointer hover:bg-blue-700 transition-all border-2 border-white">
                       <Camera className="w-4 h-4" />
                       <input type="file" className="hidden" accept="image/*" onChange={handlePhotoUpload} disabled={isUploadingPhoto} />
                     </label>
                   </div>
                   <h2 className="text-3xl font-black text-gray-900 mb-1">{userProfile.displayName}</h2>
-                  <span className="px-4 py-1.5 bg-amber-50 text-amber-600 rounded-full text-xs font-black uppercase tracking-wider">
-                    Aide-Courtier Prestige
+                  <span className="px-4 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-black uppercase tracking-widest">
+                    {userProfile.role === 'courtier' ? 'Courtier Prestige' : 'Aide-Courtier Prestige'}
                   </span>
                 </div>
 
-                <div className="space-y-6 mb-12">
+                <div className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Prénom <span className="text-red-500">*</span></p>
+                      {isEditing ? (
+                        <input 
+                          type="text"
+                          value={prenom}
+                          onChange={(e) => setPrenom(e.target.value)}
+                          placeholder="Votre prénom"
+                          className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2 outline-none focus:border-blue-500 font-bold"
+                        />
+                      ) : (
+                        <p className="font-bold text-gray-700">{userProfile.prenom || 'Non renseigné'}</p>
+                      )}
+                    </div>
+                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nom <span className="text-red-500">*</span></p>
+                      {isEditing ? (
+                        <input 
+                          type="text"
+                          value={nom}
+                          onChange={(e) => setNom(e.target.value)}
+                          placeholder="Votre nom"
+                          className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2 outline-none focus:border-blue-500 font-bold"
+                        />
+                      ) : (
+                        <p className="font-bold text-gray-700">{userProfile.nom || 'Non renseigné'}</p>
+                      )}
+                    </div>
                     <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
                       <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Email</p>
                       <p className="font-bold text-gray-700">{userProfile.email}</p>
@@ -651,44 +901,55 @@ export default function ProfilePage({
                         <p className="font-bold text-gray-700">{userProfile.phone || 'Non renseigné'}</p>
                       )}
                     </div>
-                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Pays</p>
-                      <p className="font-bold text-gray-700 flex items-center gap-2">
-                        {userCountry?.flag} {userProfile.country || 'Non renseigné'}
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Rôle</p>
-                      <p className="font-bold text-gray-700">Aide-Courtier</p>
-                    </div>
                   </div>
-                </div>
 
-                <div className="flex flex-col gap-4">
-                  {isEditing ? (
-                    <button 
-                      onClick={handleUpdateProfile}
-                      className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-5 rounded-2xl font-black shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all"
-                    >
-                      <Save className="w-5 h-5" />
-                      Enregistrer les modifications
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={() => setIsEditing(true)}
-                      className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-black transition-all"
-                    >
-                      <Edit2 className="w-5 h-5" />
-                      Modifier mon profil
-                    </button>
+                  {isCourtier && (userProfile.plan === 'Prestige' || userProfile.plan === 'Agence') && (
+                    <div className="space-y-4 pt-6 border-t border-gray-100">
+                      <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Personnalisation Premium</h4>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Description Agence</label>
+                          {isEditing ? (
+                            <textarea 
+                              value={agencyDescription}
+                              onChange={(e) => setAgencyDescription(e.target.value)}
+                              rows={3}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 outline-none focus:border-blue-500 font-bold text-sm resize-none"
+                            />
+                          ) : (
+                            <p className="text-sm text-gray-600 font-medium">{agencyDescription || 'Aucune description.'}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   )}
-                  <button 
-                    onClick={() => auth.signOut()}
-                    className="w-full flex items-center justify-center gap-2 text-red-500 py-5 rounded-2xl font-black hover:bg-red-50 transition-all"
-                  >
-                    <LogOut className="w-5 h-5" />
-                    Se déconnecter
-                  </button>
+
+                  <div className="flex flex-col gap-4 pt-8">
+                    {isEditing ? (
+                      <button 
+                        onClick={handleUpdateProfile}
+                        className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white py-5 rounded-2xl font-black shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all"
+                      >
+                        <Save className="w-5 h-5" />
+                        Enregistrer les modifications
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => setIsEditing(true)}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-900 text-white py-5 rounded-2xl font-black shadow-xl hover:bg-black transition-all"
+                      >
+                        <Edit2 className="w-5 h-5" />
+                        Modifier mon profil
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => auth.signOut()}
+                      className="w-full flex items-center justify-center gap-2 text-red-500 py-5 rounded-2xl font-black hover:bg-red-50 transition-all"
+                    >
+                      <LogOut className="w-5 h-5" />
+                      Se déconnecter
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -890,90 +1151,61 @@ export default function ProfilePage({
                 </label>
               </div>
               <h2 className="text-2xl font-black text-gray-900 mb-1">{userProfile.displayName}</h2>
-              <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                userProfile.role === 'courtier' ? 'bg-blue-50 text-blue-600' :
-                'bg-gray-50 text-gray-600'
-              }`}>
-                {userProfile.role === 'courtier' ? 'Courtier Vérifié' : 
-                 'Chercheur de Logement'}
+              <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-gray-50 text-gray-600">
+                Chercheur de Logement
               </span>
             </div>
 
-            {userProfile.role === 'courtier' && (
-              <div className="mb-8 p-6 bg-brand-50 rounded-[2rem] border border-brand-100 shadow-inner">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="p-2 bg-brand-500 rounded-xl text-white">
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <span className="text-sm font-black text-brand-900 uppercase tracking-widest">Performances</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white p-4 rounded-2xl border border-brand-100/50">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Annonces</p>
-                    <p className="text-2xl font-black text-brand-600">{myListings.length}</p>
-                  </div>
-                  <div className="bg-white p-4 rounded-2xl border border-brand-100/50">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Vues Totales</p>
-                    <p className="text-2xl font-black text-brand-600">
-                      {myListings.reduce((acc, curr) => acc + (curr.views || 0), 0)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+            {/* Wallet Section removed for regular users */}
+
+            {/* Performance Section removed for regular users */}
 
             <div className="flex flex-col gap-3">
-              {userProfile.role === 'courtier' && (userProfile.plan === 'Prestige' || userProfile.plan === 'Agence') && (
-                <div className="space-y-4 mb-6 pt-6 border-t border-gray-100">
-                  <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Personnalisation Premium</h4>
-                  
-                  <div className="space-y-3">
-                    <div>
-                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Couverture (URL)</label>
-                      {isEditing ? (
-                        <input 
-                          type="text"
-                          value={coverImage}
-                          onChange={(e) => setCoverImage(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 text-xs"
-                        />
-                      ) : (
-                        <p className="text-xs text-gray-500 truncate">{coverImage || 'Non définie'}</p>
-                      )}
-                    </div>
-
-                    {userProfile.plan === 'Agence' && (
-                      <div>
-                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Logo Agence (URL)</label>
-                        {isEditing ? (
-                          <input 
-                            type="text"
-                            value={agencyLogo}
-                            onChange={(e) => setAgencyLogo(e.target.value)}
-                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 text-xs"
-                          />
-                        ) : (
-                          <p className="text-xs text-gray-500 truncate">{agencyLogo || 'Non défini'}</p>
-                        )}
-                      </div>
-                    )}
-
-                    <div>
-                      <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Description</label>
-                      {isEditing ? (
-                        <textarea 
-                          value={agencyDescription}
-                          onChange={(e) => setAgencyDescription(e.target.value)}
-                          rows={2}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 text-xs resize-none"
-                        />
-                      ) : (
-                        <p className="text-xs text-gray-500 line-clamp-2">{agencyDescription || 'Non définie'}</p>
-                      )}
-                    </div>
-                  </div>
+              <div className="space-y-4 mb-4">
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Prénom <span className="text-red-500">*</span></p>
+                  {isEditing ? (
+                    <input 
+                      type="text"
+                      value={prenom}
+                      onChange={(e) => setPrenom(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 font-bold text-sm"
+                    />
+                  ) : (
+                    <p className="font-bold text-gray-700 text-sm">{userProfile.prenom || 'Non renseigné'}</p>
+                  )}
                 </div>
-              )}
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Nom <span className="text-red-500">*</span></p>
+                  {isEditing ? (
+                    <input 
+                      type="text"
+                      value={nom}
+                      onChange={(e) => setNom(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 font-bold text-sm"
+                    />
+                  ) : (
+                    <p className="font-bold text-gray-700 text-sm">{userProfile.nom || 'Non renseigné'}</p>
+                  )}
+                </div>
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Email</p>
+                  <p className="font-bold text-gray-700 text-sm">{userProfile.email}</p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Téléphone</p>
+                  {isEditing ? (
+                    <input 
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-500 font-bold text-sm"
+                    />
+                  ) : (
+                    <p className="font-bold text-gray-700 text-sm">{userProfile.phone || 'Non renseigné'}</p>
+                  )}
+                </div>
+              </div>
 
               {isEditing ? (
                 <button 
@@ -1012,27 +1244,9 @@ export default function ProfilePage({
           >
             <div className="flex items-center justify-between mb-8">
               <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3">
-                {userProfile.role === 'courtier' ? (
-                  <>
-                    <Home className="w-6 h-6 text-blue-600" />
-                    Mes Annonces
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-6 h-6 text-blue-600" />
-                    Mes Demandes
-                  </>
-                )}
+                <Search className="w-6 h-6 text-blue-600" />
+                Mes Demandes
               </h3>
-              {userProfile.role === 'courtier' && (
-                <button 
-                  onClick={onAddListing}
-                  className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold hover:bg-blue-700 transition-all text-sm"
-                >
-                  <Plus className="w-4 h-4" />
-                  Ajouter
-                </button>
-              )}
             </div>
 
             {loading ? (
@@ -1041,121 +1255,35 @@ export default function ProfilePage({
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {userProfile.role === 'courtier' ? (
-                  myListings.length > 0 ? (
-                    myListings.map(listing => (
-                      <div key={listing.id} className="relative group">
-                        <ListingCard 
-                          listing={listing} 
-                          onClick={onViewListing}
-                          isFavorite={isFavorite(listing.id)}
-                          onToggleFavorite={onToggleFavorite}
-                          userProfile={userProfile}
-                        />
-                        <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onEditListing(listing);
-                            }}
-                            className="bg-blue-500 text-white p-2 rounded-full md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                            title="Modifier l'annonce"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setListingToDelete(listing.id);
-                            }}
-                            className="bg-red-500 text-white p-2 rounded-full md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                            title="Supprimer l'annonce"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                          {listing.status !== 'Loué' && !listing.isBoosted && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleBoostListing(listing);
-                              }}
-                              disabled={isProcessingBoost === listing.id}
-                              className="bg-amber-500 text-white p-2 rounded-full md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                              title="Booster l'annonce (2500 FCFA)"
-                            >
-                              {isProcessingBoost === listing.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Zap className="w-4 h-4" />
-                              )}
-                            </button>
-                          )}
-                          {listing.status !== 'Loué' && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setListingToMarkSold(listing);
-                                checkAffiliate(listing.id);
-                              }}
-                              className="bg-blue-600 text-white p-2 rounded-full md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                              title="Marquer comme conclu"
-                            >
-                              <DollarSign className="w-4 h-4" />
-                            </button>
-                          )}
-                          {listing.status !== 'Loué' && (
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setListingToClose(listing);
-                              }}
-                              className="bg-emerald-500 text-white p-2 rounded-full md:opacity-0 md:group-hover:opacity-100 transition-opacity shadow-lg"
-                              title="Marquer comme Loué"
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
+                {myRequests.length > 0 ? (
+                  myRequests.map(request => (
+                    <div key={request.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-100 relative group">
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">
+                          {request.type}
+                        </span>
+                        <button
+                          onClick={() => handleDeleteRequest(request.id)}
+                          className="text-gray-400 hover:text-red-500 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    ))
-                  ) : (
-                    <EmptyState 
-                      icon={<Home className="w-12 h-12 text-gray-300" />}
-                      title="Aucune annonce"
-                      description="Commencez à publier vos biens immobiliers dès maintenant."
-                    />
-                  )
+                      <h4 className="font-bold text-gray-900 mb-1">{request.neighborhood}</h4>
+                      <p className="text-blue-600 font-black text-sm mb-3">{formatPrice(request.budget)}</p>
+                      <p className="text-xs text-gray-500 line-clamp-2 italic mb-4">"{request.description}"</p>
+                      <div className="flex items-center gap-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                        <Clock className="w-3 h-3" />
+                        {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'À l\'instant'}
+                      </div>
+                    </div>
+                  ))
                 ) : (
-                  myRequests.length > 0 ? (
-                    myRequests.map(request => (
-                      <div key={request.id} className="bg-gray-50 rounded-2xl p-6 border border-gray-100 relative group">
-                        <div className="flex items-center justify-between mb-4">
-                          <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">
-                            {request.type}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteRequest(request.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <h4 className="font-bold text-gray-900 mb-1">{request.neighborhood}</h4>
-                        <p className="text-blue-600 font-black text-sm mb-3">{formatPrice(request.budget)}</p>
-                        <p className="text-xs text-gray-500 line-clamp-2 italic mb-4">"{request.description}"</p>
-                        <div className="flex items-center gap-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                          <Clock className="w-3 h-3" />
-                          {request.createdAt?.toDate ? request.createdAt.toDate().toLocaleDateString('fr-FR') : 'À l\'instant'}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <EmptyState 
-                      icon={<Search className="w-12 h-12 text-gray-300" />}
-                      title="Aucune demande"
-                      description="Publiez ce que vous cherchez pour que les courtiers vous contactent."
-                    />
-                  )
+                  <EmptyState 
+                    icon={<Search className="w-12 h-12 text-gray-300" />}
+                    title="Aucune demande"
+                    description="Publiez ce que vous cherchez pour que les courtiers vous contactent."
+                  />
                 )}
               </div>
             )}
@@ -1188,62 +1316,7 @@ export default function ProfilePage({
             </motion.div>
           )}
 
-          {/* Service Requests Section */}
-          {userProfile.role === 'courtier' && (
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-white rounded-3xl p-8 shadow-xl shadow-blue-900/5 border border-gray-100 mt-8"
-            >
-              <h3 className="text-2xl font-black text-gray-900 flex items-center gap-3 mb-8">
-                <Zap className="w-6 h-6 text-amber-500" />
-                Mes Services Pro
-              </h3>
-
-              {serviceRequests.length > 0 ? (
-                <div className="space-y-4">
-                  {serviceRequests.map((request) => (
-                    <div key={request.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                      <div className="flex items-center gap-4">
-                        <div className={`p-3 rounded-xl ${
-                          request.serviceType === 'Badge VÉRIFIÉ' ? 'bg-blue-100 text-blue-600' :
-                          request.serviceType === 'PACK Agence' ? 'bg-emerald-100 text-emerald-600' :
-                          'bg-amber-100 text-amber-600'
-                        }`}>
-                          {request.serviceType === 'Badge VÉRIFIÉ' ? <ShieldCheck className="w-5 h-5" /> :
-                           request.serviceType === 'PACK Agence' ? <Package className="w-5 h-5" /> :
-                           <Zap className="w-5 h-5" />}
-                        </div>
-                        <div>
-                          <p className="font-bold text-gray-900">{request.serviceType}</p>
-                          <p className="text-xs text-gray-500">{formatPrice(request.price)}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {request.status === 'En attente' ? (
-                          <span className="flex items-center gap-1.5 bg-amber-50 text-amber-600 px-3 py-1 rounded-full text-xs font-bold">
-                            <Clock className="w-3 h-3" />
-                            En attente
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full text-xs font-bold">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Validé
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12 bg-gray-50 rounded-[2rem] border border-dashed border-gray-200">
-                  <Zap className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-                  <p className="text-gray-500 font-medium">Vous n'avez pas encore souscrit à nos services pro.</p>
-                </div>
-              )}
-            </motion.div>
-          )}
+          {/* Service Requests Section removed for regular users */}
         </div>
       </div>
     </div>

@@ -7,6 +7,8 @@ export type PaymentStatus = "En attente" | "Validé";
 export interface UserProfile {
   uid: string;
   displayName: string | null;
+  nom?: string;
+  prenom?: string;
   email: string | null;
   photoURL?: string;
   role: UserRole;
@@ -25,6 +27,8 @@ export interface UserProfile {
   agencyLogo?: string;
   agencyDescription?: string;
   isGoldVerified?: boolean;
+  hasVideoAccess?: boolean;
+  videoAccessExpiration?: any;
 }
 
 export type ListingStatus = "Disponible" | "Loué" | "Bloqué";
@@ -51,6 +55,7 @@ export interface Listing {
   lat?: number;
   lng?: number;
   commissionAideCourtier?: number;
+  allowCollaboration?: boolean;
   status?: ListingStatus;
   isAgentCertified?: boolean;
   isVisitedByTeam?: boolean;
@@ -61,6 +66,18 @@ export interface Listing {
   courtierPhoto?: string;
   views?: number;
   favoritesCount?: number;
+  hasVideoAccess?: boolean;
+}
+
+export interface PromoCode {
+  id: string;
+  codeName: string;
+  reduction: number;
+  reductionType: "percent" | "fixed";
+  dateExpiration: any;
+  estActif: boolean;
+  afficherBarreDefilante: boolean;
+  createdAt: any;
 }
 
 export interface AffiliateClick {
@@ -128,7 +145,7 @@ export interface ColocationMessage {
   createdAt: any;
 }
 
-export type TransactionType = "commission" | "withdrawal" | "purchase";
+export type TransactionType = "commission" | "withdrawal" | "purchase" | "deposit";
 export type TransactionStatus = "completed" | "pending" | "rejected";
 
 export interface Transaction {
@@ -154,6 +171,18 @@ export interface HousingRequest {
   status: "Ouvert" | "Fermé";
 }
 
+export interface BoostRequest {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  courtierId: string;
+  courtierName: string;
+  amount: number;
+  duration: number; // in days
+  status: 'en_attente' | 'valide' | 'rejete';
+  createdAt: any;
+}
+
 export interface LeadTransfer {
   id: string;
   listingId: string;
@@ -165,6 +194,32 @@ export interface LeadTransfer {
   clientName?: string;
   createdAt: any;
   status?: 'En cours' | 'Vente Réussie' | 'Litige';
+}
+
+export interface RechargeRequest {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  amount: number;
+  selectedTariff: number;
+  captureUrl: string;
+  status: 'en_attente' | 'valide' | 'rejete';
+  createdAt: any;
+}
+
+export interface WithdrawalRequest {
+  id: string;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  firstName?: string;
+  lastName?: string;
+  amount: number;
+  method: 'Wave' | 'Orange Money';
+  phoneNumber: string;
+  status: 'en_attente' | 'valide' | 'rejete';
+  createdAt: any;
 }
 
 export const NEIGHBORHOODS: Neighborhood[] = [
